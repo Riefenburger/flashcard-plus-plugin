@@ -49,15 +49,12 @@ export class GridEngine {
         const targetAIdx: number = cloze.coords?.[1] ?? -1;
         const mirrorVars: string[] = Array.isArray(cardData.mirrorVars) ? cardData.mirrorVars : [];
 
-        // mirror cell coords → true
         const mirrorSet = new Set<string>();
         (cardData.mirrors || []).forEach((m: any) => {
             if (Array.isArray(m.coords)) mirrorSet.add(`${m.coords[0]}-${m.coords[1]}`);
         });
 
-        // mirrorData for the active cloze: ordered values aligned with mirrorVars
         const mirrorDataArr: string[] = Array.isArray(cloze.mirrorData) ? cloze.mirrorData : [];
-
         const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
 
         // ── Grid ────────────────────────────────────────────────────────────
@@ -66,11 +63,14 @@ export class GridEngine {
             attr: { style: 'margin-bottom: 8px; font-size: 1em;' }
         });
 
-        const gridEl = container.createDiv({ cls: 'gi-grid-review' });
+        // Scrollable wrapper — lets the grid pan horizontally on mobile
+        const gridWrap = container.createDiv({ cls: 'gi-grid-review-grid-wrap' });
+        const gridEl = gridWrap.createDiv({ cls: 'gi-grid-review' });
         gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
 
         const covered = new Set<number>();
         const indexAt = (r: number, c: number) => r * cols + c;
+        let targetCellEl: HTMLElement | null = null;
 
         rows.forEach((row: any[], rIdx: number) => {
             if (!Array.isArray(row)) return;
@@ -108,7 +108,6 @@ export class GridEngine {
                         cell.setAttribute('style', cell.getAttribute('style') + '; ' + flat);
                     }
                     if (rules && isMirror) {
-                        // Scope the rule blocks to this specific mirror cell
                         const scopeId = `gi-m-${rIdx}-${aIdx}`;
                         cell.dataset.giMirrorId = scopeId;
                         const scoped = rules.replace(/(^|\})\s*([^{}]+)\s*\{/g, (_, prev, sel) => {
@@ -128,6 +127,7 @@ export class GridEngine {
                 } else if (isTarget) {
                     cell.addClass('gi-grid-review-cell--target');
                     cell.setText('?');
+                    targetCellEl = cell;
                 } else if (isMirror) {
                     cell.addClass('gi-grid-review-cell--mirror');
                     mirrorVars.forEach((name, i) => {
@@ -151,6 +151,17 @@ export class GridEngine {
                 aIdx++;
             });
         });
+
+        // ── Pan grid so the target ? cell is horizontally centred ────────────
+        if (targetCellEl) {
+            const target = targetCellEl as HTMLElement;
+            requestAnimationFrame(() => {
+                const cellLeft = target.offsetLeft;
+                const cellWidth = target.offsetWidth;
+                const wrapWidth = gridWrap.clientWidth;
+                gridWrap.scrollLeft = cellLeft - wrapWidth / 2 + cellWidth / 2;
+            });
+        }
 
         // ── Input ────────────────────────────────────────────────────────────
         const inputRow = container.createDiv({ cls: 'gi-grid-review-input-row' });
