@@ -4,9 +4,31 @@ import { renderMathInContainer } from '../utils/render-math';
 /** Splits a CSS string into flat property declarations and selector rule blocks. */
 function splitFlatAndRules(css: string): { flat: string; rules: string } {
     const ruleBlocks: string[] = [];
-    const flat = css
-        .replace(/[^{}]+\{[^{}]*\}/g, (match) => { ruleBlocks.push(match.trim()); return ''; })
-        .replace(/\s+/g, ' ').trim().replace(/^;+|;+$/g, '').trim();
+    const flatParts: string[] = [];
+    let remaining = css;
+
+    while (true) {
+        const open = remaining.indexOf('{');
+        if (open === -1) { flatParts.push(remaining); break; }
+        const close = remaining.indexOf('}', open);
+        if (close === -1) { flatParts.push(remaining); break; }
+
+        const before = remaining.slice(0, open);
+        const semiIdx = before.lastIndexOf(';');
+        if (semiIdx >= 0) {
+            flatParts.push(before.slice(0, semiIdx + 1));
+            const selector = before.slice(semiIdx + 1).trim();
+            const content = remaining.slice(open + 1, close).trim();
+            if (selector) ruleBlocks.push(`${selector} { ${content} }`);
+        } else {
+            const selector = before.trim();
+            const content = remaining.slice(open + 1, close).trim();
+            if (selector) ruleBlocks.push(`${selector} { ${content} }`);
+        }
+        remaining = remaining.slice(close + 1);
+    }
+
+    const flat = flatParts.join('').replace(/\s+/g, ' ').trim().replace(/;+$/, '').trim();
     return { flat, rules: ruleBlocks.join('\n') };
 }
 

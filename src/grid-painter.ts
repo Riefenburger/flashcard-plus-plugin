@@ -112,18 +112,36 @@ const AUTO_CAT_PATTERN = /^cell-\d+-\d+$/;
 
 /**
  * Splits a CSS string into flat property declarations and selector rule blocks.
- * Flat part styles the cell container; rule blocks scope to var lines in review.
- * e.g. "background:navy; .gi-mirror-var--symbol { font-size:2em; }"
- *   → flat: "background:navy;" | rules: ".gi-mirror-var--symbol { font-size:2em; }"
+ * Uses the last semicolon before each { to find where the selector starts,
+ * so flat properties before rule blocks are correctly preserved.
  */
 function splitFlatAndRules(css: string): { flat: string; rules: string } {
     const ruleBlocks: string[] = [];
-    const flat = css
-        .replace(/[^{}]+\{[^{}]*\}/g, (match) => { ruleBlocks.push(match.trim()); return ''; })
-        .replace(/\s+/g, ' ')
-        .trim()
-        .replace(/^;+|;+$/g, '')
-        .trim();
+    const flatParts: string[] = [];
+    let remaining = css;
+
+    while (true) {
+        const open = remaining.indexOf('{');
+        if (open === -1) { flatParts.push(remaining); break; }
+        const close = remaining.indexOf('}', open);
+        if (close === -1) { flatParts.push(remaining); break; }
+
+        const before = remaining.slice(0, open);
+        const semiIdx = before.lastIndexOf(';');
+        if (semiIdx >= 0) {
+            flatParts.push(before.slice(0, semiIdx + 1));
+            const selector = before.slice(semiIdx + 1).trim();
+            const content = remaining.slice(open + 1, close).trim();
+            if (selector) ruleBlocks.push(`${selector} { ${content} }`);
+        } else {
+            const selector = before.trim();
+            const content = remaining.slice(open + 1, close).trim();
+            if (selector) ruleBlocks.push(`${selector} { ${content} }`);
+        }
+        remaining = remaining.slice(close + 1);
+    }
+
+    const flat = flatParts.join('').replace(/\s+/g, ' ').trim().replace(/;+$/, '').trim();
     return { flat, rules: ruleBlocks.join('\n') };
 }
 
