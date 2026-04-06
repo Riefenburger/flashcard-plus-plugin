@@ -1348,11 +1348,11 @@ button.mod-ghost:hover {
     color: var(--text-normal);
 }
 
-/* Mobile — stack mirror above grid */
+/* Mobile — stack mirror above grid, scale grid to fit screen */
 @media (max-width: 600px) {
     .gi-grid-review-layout {
         flex-direction: column;
-        align-items: center;
+        align-items: stretch;
     }
 
     .gi-grid-mirror-wrap {
@@ -1375,6 +1375,35 @@ button.mod-ghost:hover {
     .gi-grid-mirror-hint {
         margin-top: 0;
         text-align: left;
+    }
+
+    /* Grid scrolls horizontally rather than reflowing — prevents cell overflow */
+    .gi-grid-review-grid-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Scale cells down to fit — no min-width so they can shrink freely */
+    .gi-grid-review-cell {
+        min-width: 0;
+        min-height: 0;
+        padding: 1px 2px;
+        font-size: min(0.65em, 2.5vw);
+        word-break: normal;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+
+    /* Clamp user-injected mirror var font sizes so they don't blow out the layout */
+    .gi-grid-review-cell--mirror .gi-mirror-var {
+        font-size: min(1em, 4vw) !important;
+        line-height: 1.2;
+    }
+
+    /* Target ? cell stays legible */
+    .gi-grid-review-cell--target {
+        font-size: min(0.9em, 3.5vw);
+        white-space: nowrap;
     }
 }
 

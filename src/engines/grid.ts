@@ -67,7 +67,7 @@ export class GridEngine {
         });
 
         const gridEl = container.createDiv({ cls: 'gi-grid-review' });
-        gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(24px, 1fr))`;
+        gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
 
         const covered = new Set<number>();
         const indexAt = (r: number, c: number) => r * cols + c;
