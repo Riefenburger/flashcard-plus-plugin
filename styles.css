@@ -1301,6 +1301,11 @@ button.mod-ghost:hover {
     visibility: hidden;
 }
 
+/* Dim all regular cells so the target ? stands out */
+.gi-grid-review-cell:not(.gi-grid-review-cell--target):not(.gi-grid-review-cell--mirror):not(.gi-grid-review-cell--empty) {
+    opacity: 0.35;
+}
+
 .gi-grid-review-cell--target {
     background: var(--interactive-accent);
     color: var(--text-on-accent);
