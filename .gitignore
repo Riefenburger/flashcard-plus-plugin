@@ -1,2 +1,5 @@
-node_modules/\n.cache/\n*.js.map
-node_modules
+node_modules/
+main.js
+data.json
+.cache/
+*.js.map
