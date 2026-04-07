@@ -88,7 +88,7 @@ export class GridEngine {
                 if (cIdx >= cols) return;
 
                 const parts = String(cellStr).split(':');
-                const val = parts[0] ?? '';
+                const val = resolve(parts[0] ?? '', dict);
                 const cat = parts[1] || null;
                 const colSpan = Math.max(1, parseInt(parts[2] ?? '1') || 1);
                 const rowSpan = Math.max(1, parseInt(parts[3] ?? '1') || 1);
@@ -180,7 +180,7 @@ export class GridEngine {
 
         const submit = (answer: string) => {
             const userAnswer = answer.trim().toLowerCase();
-            const isCorrect = (cloze.answers || []).some((a: string) => a.toLowerCase() === userAnswer);
+            const isCorrect = (cloze.answers || []).some((a: string) => resolve(a, dict).toLowerCase() === userAnswer);
             input.disabled = true;
             onComplete(isCorrect, answer.trim());
         };
