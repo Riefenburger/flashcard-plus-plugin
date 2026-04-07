@@ -1277,11 +1277,12 @@ button.mod-ghost:hover {
 .gi-grid-review {
     display: grid;
     gap: 2px;
+    grid-auto-rows: 1fr; /* all rows equal height — content never pushes rows open */
 }
 
 .gi-grid-review-cell {
     border: 1px solid var(--background-modifier-border);
-    min-height: 28px;
+    min-height: 0;
     min-width: 0;
     padding: 3px 4px;
     font-size: 0.72em;
@@ -1292,6 +1293,8 @@ button.mod-ghost:hover {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    align-self: stretch;
+    height: 100%;
     /* Excel-style: content clips to cell, never expands it */
     white-space: nowrap;
     text-overflow: ellipsis;

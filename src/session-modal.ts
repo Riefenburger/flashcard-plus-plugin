@@ -19,6 +19,7 @@ export class SessionModal extends Modal {
     plugin: GrandInventoryPlugin;
     pluginData: PluginData;
     allCards: any[];
+    dict: Record<string, string>;
     availableDecks: Set<string> = new Set();
     selectedDecks: Set<string> = new Set();
     reviewQueue: any[] = [];
@@ -27,11 +28,12 @@ export class SessionModal extends Modal {
     private sessionCorrect = 0;
     private sessionStart = 0;
 
-    constructor(app: App, pluginData: PluginData, allCards: any[], plugin: GrandInventoryPlugin) {
+    constructor(app: App, pluginData: PluginData, allCards: any[], plugin: GrandInventoryPlugin, dict: Record<string, string> = {}) {
         super(app);
         this.app = app;
         this.pluginData = pluginData;
         this.allCards = allCards || [];
+        this.dict = dict;
         this.plugin = plugin;
 
         this.allCards.forEach(card => {
@@ -213,7 +215,7 @@ export class SessionModal extends Modal {
         const filtered = this.allCards.filter(c => this.selectedDecks.has(c.deck));
         filtered.forEach(card => {
             card.clozes.forEach((cloze: any) => {
-                this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id });
+                this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
             });
         });
         this.reviewQueue.sort(() => Math.random() - 0.5);
@@ -304,7 +306,7 @@ export class SessionModal extends Modal {
         };
 
         if (item.type === "grid") {
-            GridEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
+            GridEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
         } else if (item.type === "audio") {
             AudioEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult);
         } else if (item.type === "svg") {
@@ -320,7 +322,7 @@ export class SessionModal extends Modal {
                 m.TimelineEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
             });
         } else {
-            TraditionalEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult);
+            TraditionalEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult, item.dict);
         }
     }
 }

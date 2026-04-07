@@ -32,6 +32,10 @@ function splitFlatAndRules(css: string): { flat: string; rules: string } {
     return { flat, rules: ruleBlocks.join('\n') };
 }
 
+function resolve(str: string, dict: Record<string, string>): string {
+    return str.replace(/\{\{([^}]+)\}\}/g, (_, key) => dict[key.trim()] ?? `{{${key}}}`);
+}
+
 export class GridEngine {
     static renderInModal(
         _app: App,
@@ -39,7 +43,8 @@ export class GridEngine {
         container: HTMLElement,
         cardData: any,
         cloze: any,
-        onComplete: (isCorrect: boolean, userAnswer: string) => void
+        onComplete: (isCorrect: boolean, userAnswer: string) => void,
+        dict: Record<string, string> = {}
     ) {
         container.empty();
 
@@ -54,7 +59,8 @@ export class GridEngine {
             if (Array.isArray(m.coords)) mirrorSet.add(`${m.coords[0]}-${m.coords[1]}`);
         });
 
-        const mirrorDataArr: string[] = Array.isArray(cloze.mirrorData) ? cloze.mirrorData : [];
+        const mirrorDataArr: string[] = (Array.isArray(cloze.mirrorData) ? cloze.mirrorData : [])
+            .map((v: string) => resolve(v, dict));
         const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
 
         // ── Grid ────────────────────────────────────────────────────────────

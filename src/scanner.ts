@@ -5,53 +5,65 @@ export interface ScannedCard {
     type: string;
     deck: string;
     clozes: any[];
-    filePath: string; // We need this to know where to save edits later
+    filePath: string;
+}
+
+export interface ScanResult {
+    cards: ScannedCard[];
+    dict: Record<string, string>;  // flat "Ns.key" → value lookup
 }
 
 export class VaultScanner {
-    static async scan(app: App, targetTag: string): Promise<ScannedCard[]> {
+    static async scan(app: App, targetTag: string): Promise<ScanResult> {
         const files = app.vault.getMarkdownFiles();
-        const cards: ScannedCard[] =[];
+        const cards: ScannedCard[] = [];
+        const dict: Record<string, string> = {};
 
         for (const file of files) {
             const cache = app.metadataCache.getFileCache(file);
             const tags = cache ? getAllTags(cache) : [];
-            // This checks for both "grand-inventory" and "#grand-inventory" to be safe
-            const hasTag = tags?.some(tag => tag.replaceAll("#", "") === targetTag.replaceAll("#", ""));
+            const hasTag = tags?.some(tag => tag.replaceAll('#', '') === targetTag.replaceAll('#', ''));
 
-            // Optimization: Only scan files with our tag
             if (hasTag) {
                 const content = await app.vault.read(file);
-                const extracted = this.parseCardsFromContent(content, file);
-                cards.push(...extracted);
+                this.parseFromContent(content, file, cards, dict);
             }
         }
-        return cards;
+        return { cards, dict };
     }
 
-    private static parseCardsFromContent(content: string, file: TFile): ScannedCard[] {
-        const cardList: ScannedCard[] = [];
-        // This regex looks for code blocks labeled 'inventory-card'
+    private static parseFromContent(
+        content: string,
+        file: TFile,
+        cards: ScannedCard[],
+        dict: Record<string, string>
+    ) {
         const regex = /```inventory-card\s*([\s\S]*?)\s*```/g;
         let match;
 
         while ((match = regex.exec(content)) !== null) {
-            if (match[1]) {
-                try {
-                    const json = JSON.parse(match[1]);
-                    // Set default deck to file name if not specified in JSON
-                    const deckName = json.deck || file.basename;
+            if (!match[1]) continue;
+            try {
+                const json = JSON.parse(match[1]);
 
-                    cardList.push({
-                        ...json,
-                        deck: deckName,
-                        filePath: file.path
-                    });
-                } catch (e) {
-                    console.error(`Failed to parse card in ${file.path}`, e);
+                if (json.type === 'dictionary') {
+                    // Flatten nested namespace entries: { "F": { "mass": "18.998" } } → "F.mass" = "18.998"
+                    const entries: Record<string, any> = json.entries || {};
+                    for (const [ns, fields] of Object.entries(entries)) {
+                        if (typeof fields === 'object' && fields !== null) {
+                            for (const [key, val] of Object.entries(fields as Record<string, string>)) {
+                                dict[`${ns}.${key}`] = String(val);
+                            }
+                        }
+                    }
+                    continue;  // dictionary blocks are not cards
                 }
+
+                const deckName = json.deck || file.basename;
+                cards.push({ ...json, deck: deckName, filePath: file.path });
+            } catch (e) {
+                console.error(`Failed to parse card in ${file.path}`, e);
             }
         }
-        return cardList;
     }
 }

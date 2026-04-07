@@ -14,12 +14,12 @@ export default class GrandInventoryPlugin extends Plugin {
 
         // Ribbon icon — starts a study session
         this.addRibbonIcon('brain-circuit', 'Start GrandInventory Session', async () => {
-            const allCards = await VaultScanner.scan(this.app, "#grand-inventory");
+            const { cards: allCards, dict } = await VaultScanner.scan(this.app, "#grand-inventory");
             if (allCards.length === 0) {
                 new Notice("No cards found! Make sure your files have the #grand-inventory tag.");
                 return;
             }
-            new SessionModal(this.app, this.pluginData, allCards, this).open();
+            new SessionModal(this.app, this.pluginData, allCards, this, dict).open();
         });
 
         // Second ribbon icon — opens the engine picker to create any card type
