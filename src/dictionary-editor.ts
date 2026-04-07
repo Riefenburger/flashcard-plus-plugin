@@ -126,17 +126,21 @@ export class DictionaryEditorModal extends Modal {
             return;
         }
 
-        // Namespace list
-        const nsContainer = el.createDiv({ cls: 'gi-dict-ns-list' });
-        this.namespaces.forEach((fields, ns) => {
-            this.renderNamespace(nsContainer, ns, fields);
-        });
-
-        // Add namespace button
-        const addNsRow = el.createDiv({ attr: { style: 'display:flex; gap:8px; margin-top:8px; align-items:center;' } });
-        const nsInput = addNsRow.createEl('input', { type: 'text', placeholder: 'New namespace (e.g. Na, Fe, vocab)' });
+        // Add namespace + Save — fixed at top
+        const topBar = el.createDiv({ attr: { style: 'display:flex; gap:8px; margin-bottom:12px; align-items:center; padding-bottom:12px; border-bottom:1px solid var(--background-modifier-border);' } });
+        const nsInput = topBar.createEl('input', { type: 'text', placeholder: 'New namespace (e.g. Na, Fe, vocab)' });
         nsInput.style.flex = '1';
-        const addNsBtn = addNsRow.createEl('button', { text: '+ Add Namespace', cls: 'mod-cta' });
+        const addNsBtn = topBar.createEl('button', { text: '+ Add', cls: 'mod-cta' });
+        const saveBtn = topBar.createEl('button', { text: 'Save', cls: 'mod-cta' });
+        saveBtn.onclick = () => this.save();
+
+        if (this.sourceFile) {
+            topBar.createEl('small', {
+                text: this.sourceFile.basename,
+                attr: { style: 'color:var(--text-faint); font-size:0.78em; white-space:nowrap;' }
+            });
+        }
+
         addNsBtn.onclick = () => {
             const name = nsInput.value.trim().replace(/\s+/g, '_');
             if (!name) return;
@@ -144,22 +148,20 @@ export class DictionaryEditorModal extends Modal {
                 new Notice(`Namespace "${name}" already exists.`);
                 return;
             }
-            this.namespaces.set(name, new Map());
+            // Prepend by rebuilding map with new entry first
+            const updated = new Map([[name, new Map<string, string>()]]);
+            this.namespaces.forEach((v, k) => updated.set(k, v));
+            this.namespaces = updated;
             nsInput.value = '';
             this.render();
         };
         nsInput.onkeydown = (e) => { if (e.key === 'Enter') addNsBtn.click(); };
 
-        // Save button
-        const footer = el.createDiv({ attr: { style: 'margin-top:16px; padding-top:12px; border-top:1px solid var(--background-modifier-border);' } });
-        if (this.sourceFile) {
-            footer.createEl('small', {
-                text: `Saving to: ${this.sourceFile.path}`,
-                attr: { style: 'display:block; color:var(--text-faint); margin-bottom:8px; font-size:0.78em;' }
-            });
-        }
-        const saveBtn = footer.createEl('button', { text: 'Save Dictionary', cls: 'mod-cta', attr: { style: 'width:100%;' } });
-        saveBtn.onclick = () => this.save();
+        // Namespace list — newest first (map order is insertion order, already reversed by prepend)
+        const nsContainer = el.createDiv({ cls: 'gi-dict-ns-list' });
+        this.namespaces.forEach((fields, ns) => {
+            this.renderNamespace(nsContainer, ns, fields);
+        });
     }
 
     private renderNamespace(container: HTMLElement, ns: string, fields: Map<string, string>) {
