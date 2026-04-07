@@ -5,6 +5,7 @@ import { VaultScanner } from 'scanner';
 import { GridPainterModal } from 'grid-painter';
 import { CardCreatorPickerModal } from 'card-creator';
 import { TraditionalCreatorModal } from './creators/traditional-creator';
+import { DictionaryEditorModal } from './dictionary-editor';
 
 export default class GrandInventoryPlugin extends Plugin {
     pluginData: PluginData;
@@ -32,6 +33,13 @@ export default class GrandInventoryPlugin extends Plugin {
             id: 'open-grid-painter',
             name: 'Open Grid Painter (New Card)',
             callback: () => new GridPainterModal(this.app).open()
+        });
+
+        // Command palette — open the flashcard dictionary editor
+        this.addCommand({
+            id: 'open-dictionary-editor',
+            name: 'Edit Flashcard Dictionary',
+            callback: () => new DictionaryEditorModal(this.app).open()
         });
 
         // Inline renderer — makes inventory-card blocks look nice while reading
@@ -121,6 +129,25 @@ export default class GrandInventoryPlugin extends Plugin {
                         text: cardData.problem.slice(0, 120) + (cardData.problem.length > 120 ? '…' : ''),
                         attr: { style: 'margin:4px 0 0; font-size:0.85em;' }
                     });
+                }
+            } else if (cardData.type === "dictionary") {
+                // Dictionary block — show namespace/key count summary
+                const info = el.createDiv({ attr: { style: "color:var(--text-muted); font-size:0.9em;" } });
+                const row = info.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; margin-bottom:6px;' } });
+                setIcon(row, 'book-open');
+                const entries: Record<string, any> = cardData.entries || {};
+                const nsCount = Object.keys(entries).length;
+                const keyCount = Object.values(entries).reduce((n: number, v: any) => n + (typeof v === 'object' ? Object.keys(v).length : 1), 0);
+                row.appendText(` Dictionary · ${nsCount} namespace${nsCount !== 1 ? 's' : ''}, ${keyCount} entries`);
+                const table = info.createEl('table', { attr: { style: 'font-size:0.85em; border-collapse:collapse; width:100%;' } });
+                for (const [ns, fields] of Object.entries(entries)) {
+                    if (typeof fields === 'object' && fields !== null) {
+                        for (const [key, val] of Object.entries(fields as Record<string, string>)) {
+                            const tr = table.createEl('tr');
+                            tr.createEl('td', { text: `{{${ns}.${key}}}`, attr: { style: 'padding:1px 8px 1px 0; color:var(--interactive-accent); font-family:monospace;' } });
+                            tr.createEl('td', { text: String(val), attr: { style: 'padding:1px 0; color:var(--text-normal);' } });
+                        }
+                    }
                 }
             } else {
                 // Traditional / audio: list cloze fronts

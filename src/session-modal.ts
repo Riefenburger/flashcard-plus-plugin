@@ -37,7 +37,7 @@ export class SessionModal extends Modal {
         this.plugin = plugin;
 
         this.allCards.forEach(card => {
-            if (card && card.deck) this.availableDecks.add(card.deck);
+            if (card && card.deck && card.type !== 'dictionary') this.availableDecks.add(card.deck);
         });
         this.selectedDecks = new Set(this.availableDecks);
     }
@@ -212,7 +212,7 @@ export class SessionModal extends Modal {
         this.sessionReviewed = 0;
         this.sessionCorrect = 0;
         this.sessionStart = Date.now();
-        const filtered = this.allCards.filter(c => this.selectedDecks.has(c.deck));
+        const filtered = this.allCards.filter(c => c.type !== 'dictionary' && this.selectedDecks.has(c.deck));
         filtered.forEach(card => {
             card.clozes.forEach((cloze: any) => {
                 this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
