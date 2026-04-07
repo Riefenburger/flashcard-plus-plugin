@@ -1,30 +1,31 @@
 import { App, Modal, Notice, TFile, getAllTags, setIcon } from 'obsidian';
+import { parseTOMLDict, serializeTOMLDict, DictData } from './utils/toml-dict';
 
 /**
  * DictionaryEditorModal
  *
- * Scans all #grand-inventory files for existing dictionary blocks.
- * If one is found it loads it for editing; otherwise it creates a new one
- * in a file the user chooses from a dropdown.
+ * Opens an editor for an `inventory-dict` TOML block.
  *
- * Structure edited:
- * {
- *   "type": "dictionary",
- *   "entries": {
- *     "H":  { "name": "Hydrogen", "number": "1", "mass": "1.008" },
- *     "He": { "name": "Helium",   "number": "2", "mass": "4.003" }
- *   }
- * }
+ * - If `targetFile` is provided, loads/saves that file's dict block.
+ * - Otherwise scans all #grand-inventory files for the first existing dict block.
+ *
+ * Block format written/read:
+ *   ```inventory-dict
+ *   [H]
+ *   name = Hydrogen
+ *   number = 1
+ *   mass = 1.008
+ *   ```
  */
 export class DictionaryEditorModal extends Modal {
-    // In-memory data: namespace → { key → value }
     private namespaces: Map<string, Map<string, string>> = new Map();
-    private sourceFile: TFile | null = null;   // file containing the dict block
-    private taggedFiles: TFile[] = [];         // all #grand-inventory files
-    private contentEl2: HTMLElement;           // alias to avoid shadowing
+    private sourceFile: TFile | null = null;
+    private taggedFiles: TFile[] = [];
+    private contentEl2: HTMLElement;
 
-    constructor(app: App) {
+    constructor(app: App, targetFile?: TFile) {
         super(app);
+        if (targetFile) this.sourceFile = targetFile;
     }
 
     async onOpen() {
@@ -63,33 +64,37 @@ export class DictionaryEditorModal extends Modal {
             if (hasTag) this.taggedFiles.push(file);
         }
 
-        // Find the first file that contains a dictionary block
-        for (const file of this.taggedFiles) {
-            const content = await this.app.vault.read(file);
-            const match = /```inventory-card\s*([\s\S]*?)\s*```/g.exec(content);
-            let m;
-            const re = /```inventory-card\s*([\s\S]*?)\s*```/g;
-            while ((m = re.exec(content)) !== null) {
-                try {
-                    const json = JSON.parse(m[1] ?? '');
-                    if (json.type === 'dictionary') {
-                        this.sourceFile = file;
-                        this.namespaces = new Map();
-                        for (const [ns, fields] of Object.entries(json.entries || {})) {
-                            const fieldMap = new Map<string, string>();
-                            if (typeof fields === 'object' && fields !== null) {
-                                for (const [k, v] of Object.entries(fields as Record<string, string>)) {
-                                    fieldMap.set(k, String(v));
-                                }
-                            }
-                            this.namespaces.set(ns, fieldMap);
-                        }
-                        return;
-                    }
-                } catch { /* ignore */ }
-            }
-            void match;
+        // If a specific file was passed, load its dict block
+        if (this.sourceFile) {
+            await this.loadFromFile(this.sourceFile);
+            return;
         }
+
+        // Otherwise scan for the first file that has an inventory-dict block
+        for (const file of this.taggedFiles) {
+            const found = await this.loadFromFile(file);
+            if (found) return;
+        }
+    }
+
+    /** Returns true if an inventory-dict block was found and loaded. */
+    private async loadFromFile(file: TFile): Promise<boolean> {
+        const content = await this.app.vault.read(file);
+        const re = /```inventory-dict\s*([\s\S]*?)\s*```/g;
+        let m;
+        while ((m = re.exec(content)) !== null) {
+            try {
+                const data = parseTOMLDict(m[1] ?? '');
+                this.sourceFile = file;
+                this.namespaces = new Map();
+                for (const [ns, fields] of Object.entries(data)) {
+                    const fieldMap = new Map<string, string>(Object.entries(fields));
+                    this.namespaces.set(ns, fieldMap);
+                }
+                return true;
+            } catch { /* ignore */ }
+        }
+        return false;
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -99,7 +104,7 @@ export class DictionaryEditorModal extends Modal {
         // Clear everything below the header (keep h2 + p)
         Array.from(el.children).slice(2).forEach(c => c.remove());
 
-        // File picker — where to save (shown if no existing dict found yet)
+        // File picker — shown only when no existing dict found
         if (!this.sourceFile && this.taggedFiles.length > 0) {
             const row = el.createDiv({ attr: { style: 'margin-bottom:12px; display:flex; align-items:center; gap:8px;' } });
             row.createEl('label', { text: 'Save to file:', attr: { style: 'font-size:0.85em; color:var(--text-muted);' } });
@@ -160,7 +165,6 @@ export class DictionaryEditorModal extends Modal {
     private renderNamespace(container: HTMLElement, ns: string, fields: Map<string, string>) {
         const block = container.createDiv({ cls: 'gi-dict-ns-block' });
 
-        // Namespace header
         const hdr = block.createDiv({ cls: 'gi-dict-ns-hdr' });
         const nameEl = hdr.createEl('strong', { text: ns, cls: 'gi-dict-ns-name' });
         hdr.createEl('span', {
@@ -168,7 +172,6 @@ export class DictionaryEditorModal extends Modal {
             attr: { style: 'font-size:0.78em; color:var(--text-faint); font-weight:400;' }
         });
 
-        // Rename namespace inline
         nameEl.contentEditable = 'true';
         nameEl.title = 'Click to rename namespace';
         nameEl.onblur = () => {
@@ -178,7 +181,7 @@ export class DictionaryEditorModal extends Modal {
                 this.namespaces.delete(ns);
                 this.render();
             } else {
-                nameEl.textContent = ns; // revert
+                nameEl.textContent = ns;
             }
         };
 
@@ -190,16 +193,14 @@ export class DictionaryEditorModal extends Modal {
             this.render();
         };
 
-        // Key-value rows
         const rowsEl = block.createDiv({ cls: 'gi-dict-rows' });
         fields.forEach((val, key) => {
             this.renderKVRow(rowsEl, ns, fields, key, val);
         });
 
-        // Add key row
         const addRow = block.createDiv({ cls: 'gi-dict-add-row' });
         const keyIn = addRow.createEl('input', { type: 'text', placeholder: 'key', cls: 'gi-dict-key-input' });
-        addRow.createEl('span', { text: ':', attr: { style: 'color:var(--text-muted);' } });
+        addRow.createEl('span', { text: '=', attr: { style: 'color:var(--text-muted);' } });
         const valIn = addRow.createEl('input', { type: 'text', placeholder: 'value', cls: 'gi-dict-val-input' });
         const addBtn = addRow.createEl('button', { cls: 'mod-ghost' });
         setIcon(addBtn, 'plus');
@@ -212,7 +213,6 @@ export class DictionaryEditorModal extends Modal {
             fields.set(k, v);
             keyIn.value = '';
             valIn.value = '';
-            // Re-render just the rows section without full re-render
             rowsEl.empty();
             fields.forEach((fv, fk) => this.renderKVRow(rowsEl, ns, fields, fk, fv));
             setTimeout(() => keyIn.focus(), 20);
@@ -225,7 +225,7 @@ export class DictionaryEditorModal extends Modal {
         const row = container.createDiv({ cls: 'gi-dict-kv-row' });
         const keyEl = row.createEl('input', { type: 'text', cls: 'gi-dict-key-input' });
         keyEl.value = key;
-        row.createEl('span', { text: ':', attr: { style: 'color:var(--text-muted); flex-shrink:0;' } });
+        row.createEl('span', { text: '=', attr: { style: 'color:var(--text-muted); flex-shrink:0;' } });
         const valEl = row.createEl('input', { type: 'text', cls: 'gi-dict-val-input' });
         valEl.value = val;
 
@@ -259,36 +259,118 @@ export class DictionaryEditorModal extends Modal {
             return;
         }
 
-        // Build entries object
-        const entries: Record<string, Record<string, string>> = {};
+        // Build DictData from in-memory maps
+        const data: DictData = {};
         this.namespaces.forEach((fields, ns) => {
-            entries[ns] = {};
-            fields.forEach((val, key) => { entries[ns]![key] = val; });
+            data[ns] = {};
+            fields.forEach((val, key) => { data[ns]![key] = val; });
         });
 
-        const newBlock = '```inventory-card\n' + JSON.stringify({ type: 'dictionary', entries }, null, '\t') + '\n```';
+        const newBlock = '```inventory-dict\n' + serializeTOMLDict(data) + '\n```';
 
-        await this.app.vault.process(this.sourceFile, (data) => {
-            // Replace existing dictionary block if present
-            const re = /```inventory-card\s*([\s\S]*?)\s*```/g;
+        await this.app.vault.process(this.sourceFile, (content) => {
+            const re = /```inventory-dict\s*([\s\S]*?)\s*```/g;
             let replaced = false;
-            const result = data.replace(re, (match, src) => {
-                try {
-                    if (JSON.parse(src)?.type === 'dictionary') {
-                        replaced = true;
-                        return newBlock;
-                    }
-                } catch { /* ignore */ }
-                return match;
+            const result = content.replace(re, () => {
+                if (!replaced) { replaced = true; return newBlock; }
+                return newBlock; // replace all dict blocks in this file
             });
-
             if (replaced) return result;
-
-            // No existing dict block — append to end of file
+            // No existing block — append to end
             return result + '\n\n' + newBlock + '\n';
         });
 
         new Notice('Dictionary saved!');
         this.close();
+    }
+}
+
+/**
+ * BrowseDictionaryModal
+ *
+ * Read-only searchable view of all dictionary terms across the vault.
+ */
+export class BrowseDictionaryModal extends Modal {
+    constructor(app: App) {
+        super(app);
+    }
+
+    async onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass('gi-dict-modal');
+        const modalEl = contentEl.closest('.modal');
+        if (modalEl) modalEl.addClass('grand-inventory-modal-window');
+
+        contentEl.createEl('h2', { text: 'Dictionary Terms', attr: { style: 'margin-bottom:4px;' } });
+
+        // Collect all terms
+        const allTerms: Array<{ ref: string; val: string; file: string }> = [];
+        const files = this.app.vault.getMarkdownFiles();
+        for (const file of files) {
+            const cache = this.app.metadataCache.getFileCache(file);
+            const tags = cache ? getAllTags(cache) : [];
+            const hasTag = tags?.some(t => t.replace('#', '') === 'grand-inventory');
+            if (!hasTag) continue;
+
+            const content = await this.app.vault.read(file);
+            const re = /```inventory-dict\s*([\s\S]*?)\s*```/g;
+            let m;
+            while ((m = re.exec(content)) !== null) {
+                try {
+                    const data = parseTOMLDict(m[1] ?? '');
+                    for (const [ns, fields] of Object.entries(data)) {
+                        for (const [key, val] of Object.entries(fields)) {
+                            allTerms.push({ ref: `{{${ns}.${key}}}`, val, file: file.basename });
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+        }
+
+        if (allTerms.length === 0) {
+            contentEl.createEl('p', {
+                text: 'No dictionary terms found. Create an inventory-dict block first.',
+                attr: { style: 'color:var(--text-muted);' }
+            });
+            return;
+        }
+
+        // Search box
+        const searchRow = contentEl.createDiv({ attr: { style: 'margin-bottom:10px;' } });
+        const searchInput = searchRow.createEl('input', {
+            type: 'text',
+            placeholder: 'Filter terms…',
+            attr: { style: 'width:100%; padding:6px;' }
+        });
+
+        // Table
+        const tableWrap = contentEl.createDiv({ attr: { style: 'overflow-y:auto; max-height:60vh;' } });
+        const table = tableWrap.createEl('table', { attr: { style: 'width:100%; border-collapse:collapse; font-size:0.9em;' } });
+
+        const renderTable = (filter: string) => {
+            table.empty();
+            const filtered = filter
+                ? allTerms.filter(t => t.ref.toLowerCase().includes(filter.toLowerCase()) || t.val.toLowerCase().includes(filter.toLowerCase()))
+                : allTerms;
+            filtered.forEach(t => {
+                const tr = table.createEl('tr');
+                tr.createEl('td', { text: t.ref, attr: { style: 'padding:3px 10px 3px 0; color:var(--interactive-accent); font-family:monospace; white-space:nowrap;' } });
+                tr.createEl('td', { text: t.val, attr: { style: 'padding:3px 10px 3px 0;' } });
+                tr.createEl('td', { text: t.file, attr: { style: 'padding:3px 0; color:var(--text-faint); font-size:0.85em;' } });
+            });
+            if (filtered.length === 0) {
+                const tr = table.createEl('tr');
+                tr.createEl('td', { text: 'No matching terms.', attr: { colspan: '3', style: 'padding:8px 0; color:var(--text-muted); text-align:center;' } });
+            }
+        };
+
+        renderTable('');
+        searchInput.oninput = () => renderTable(searchInput.value);
+        setTimeout(() => searchInput.focus(), 50);
+    }
+
+    onClose() {
+        this.contentEl.empty();
     }
 }

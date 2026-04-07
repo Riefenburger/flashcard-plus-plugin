@@ -5,7 +5,8 @@ import { VaultScanner } from 'scanner';
 import { GridPainterModal } from 'grid-painter';
 import { CardCreatorPickerModal } from 'card-creator';
 import { TraditionalCreatorModal } from './creators/traditional-creator';
-import { DictionaryEditorModal } from './dictionary-editor';
+import { DictionaryEditorModal, BrowseDictionaryModal } from './dictionary-editor';
+import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
     pluginData: PluginData;
@@ -35,11 +36,61 @@ export default class GrandInventoryPlugin extends Plugin {
             callback: () => new GridPainterModal(this.app).open()
         });
 
-        // Command palette — open the flashcard dictionary editor
+        // Command palette — insert a new dictionary into a tagged file
         this.addCommand({
-            id: 'open-dictionary-editor',
-            name: 'Edit Flashcard Dictionary',
+            id: 'insert-dictionary',
+            name: 'Insert Flashcard Dictionary',
             callback: () => new DictionaryEditorModal(this.app).open()
+        });
+
+        // Command palette — browse all dictionary terms across vault
+        this.addCommand({
+            id: 'browse-dictionary',
+            name: 'Browse Flashcard Dictionary',
+            callback: () => new BrowseDictionaryModal(this.app).open()
+        });
+
+        // Inline renderer — inventory-dict TOML blocks
+        this.registerMarkdownCodeBlockProcessor("inventory-dict", (source, el, ctx) => {
+            let data: Record<string, Record<string, string>>;
+            try {
+                data = parseTOMLDict(source);
+            } catch {
+                el.createEl("p", {
+                    text: "⚠ Invalid inventory-dict block.",
+                    attr: { style: "color: var(--text-error);" }
+                });
+                return;
+            }
+
+            el.empty();
+            el.addClass("gi-inline-preview");
+
+            const header = el.createDiv({
+                cls: "gi-header",
+                attr: { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;" }
+            });
+            const nsCount = Object.keys(data).length;
+            const keyCount = Object.values(data).reduce((n, v) => n + Object.keys(v).length, 0);
+            header.createEl("strong", { text: `Dictionary · ${nsCount} namespace${nsCount !== 1 ? 's' : ''}, ${keyCount} ${keyCount !== 1 ? 'entries' : 'entry'}` });
+
+            const editBtn = header.createEl("button", { cls: "mod-ghost" });
+            setIcon(editBtn, 'pencil');
+            editBtn.appendText(" Edit");
+            editBtn.style.fontSize = "0.75em";
+            editBtn.onclick = () => {
+                const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+                new DictionaryEditorModal(this.app, file instanceof TFile ? file : undefined).open();
+            };
+
+            const table = el.createEl('table', { attr: { style: 'font-size:0.85em; border-collapse:collapse; width:100%;' } });
+            for (const [ns, fields] of Object.entries(data)) {
+                for (const [key, val] of Object.entries(fields)) {
+                    const tr = table.createEl('tr');
+                    tr.createEl('td', { text: `{{${ns}.${key}}}`, attr: { style: 'padding:1px 8px 1px 0; color:var(--interactive-accent); font-family:monospace;' } });
+                    tr.createEl('td', { text: String(val), attr: { style: 'padding:1px 0; color:var(--text-normal);' } });
+                }
+            }
         });
 
         // Inline renderer — makes inventory-card blocks look nice while reading
@@ -129,25 +180,6 @@ export default class GrandInventoryPlugin extends Plugin {
                         text: cardData.problem.slice(0, 120) + (cardData.problem.length > 120 ? '…' : ''),
                         attr: { style: 'margin:4px 0 0; font-size:0.85em;' }
                     });
-                }
-            } else if (cardData.type === "dictionary") {
-                // Dictionary block — show namespace/key count summary
-                const info = el.createDiv({ attr: { style: "color:var(--text-muted); font-size:0.9em;" } });
-                const row = info.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; margin-bottom:6px;' } });
-                setIcon(row, 'book-open');
-                const entries: Record<string, any> = cardData.entries || {};
-                const nsCount = Object.keys(entries).length;
-                const keyCount = Object.values(entries).reduce((n: number, v: any) => n + (typeof v === 'object' ? Object.keys(v).length : 1), 0);
-                row.appendText(` Dictionary · ${nsCount} namespace${nsCount !== 1 ? 's' : ''}, ${keyCount} entries`);
-                const table = info.createEl('table', { attr: { style: 'font-size:0.85em; border-collapse:collapse; width:100%;' } });
-                for (const [ns, fields] of Object.entries(entries)) {
-                    if (typeof fields === 'object' && fields !== null) {
-                        for (const [key, val] of Object.entries(fields as Record<string, string>)) {
-                            const tr = table.createEl('tr');
-                            tr.createEl('td', { text: `{{${ns}.${key}}}`, attr: { style: 'padding:1px 8px 1px 0; color:var(--interactive-accent); font-family:monospace;' } });
-                            tr.createEl('td', { text: String(val), attr: { style: 'padding:1px 0; color:var(--text-normal);' } });
-                        }
-                    }
                 }
             } else {
                 // Traditional / audio: list cloze fronts

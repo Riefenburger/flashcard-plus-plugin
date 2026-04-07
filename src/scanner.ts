@@ -1,4 +1,5 @@
 import { TFile, App, getAllTags } from 'obsidian';
+import { parseTOMLDict, flattenDict } from './utils/toml-dict';
 
 export interface ScannedCard {
     id: string;
@@ -38,16 +39,29 @@ export class VaultScanner {
         cards: ScannedCard[],
         dict: Record<string, string>
     ) {
+        // Parse inventory-dict blocks (TOML format)
+        const dictRegex = /```inventory-dict\s*([\s\S]*?)\s*```/g;
+        let dictMatch;
+        while ((dictMatch = dictRegex.exec(content)) !== null) {
+            if (!dictMatch[1]) continue;
+            try {
+                const data = parseTOMLDict(dictMatch[1]);
+                Object.assign(dict, flattenDict(data));
+            } catch (e) {
+                console.error(`Failed to parse inventory-dict in ${file.path}`, e);
+            }
+        }
+
+        // Parse inventory-card blocks (JSON format)
         const regex = /```inventory-card\s*([\s\S]*?)\s*```/g;
         let match;
-
         while ((match = regex.exec(content)) !== null) {
             if (!match[1]) continue;
             try {
                 const json = JSON.parse(match[1]);
 
+                // Legacy JSON dictionary support
                 if (json.type === 'dictionary') {
-                    // Flatten nested namespace entries: { "F": { "mass": "18.998" } } → "F.mass" = "18.998"
                     const entries: Record<string, any> = json.entries || {};
                     for (const [ns, fields] of Object.entries(entries)) {
                         if (typeof fields === 'object' && fields !== null) {
@@ -56,7 +70,7 @@ export class VaultScanner {
                             }
                         }
                     }
-                    continue;  // dictionary blocks are not cards
+                    continue;
                 }
 
                 const deckName = json.deck || file.basename;
