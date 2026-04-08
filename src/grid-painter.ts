@@ -24,8 +24,10 @@ interface PainterCategory {
 }
 
 interface ClozeFormat {
+    value?: string;       // single key name for cell display value (e.g. "number")
     answers: string[];    // dict key names resolved as answers (e.g. ["name", "symbol"])
     mirrorData: string[]; // dict key names resolved as mirror data (e.g. ["number", "mass"])
+    notes?: string;       // single key name for notes/hint (e.g. "group")
 }
 
 interface PainterState {
@@ -298,14 +300,20 @@ export class GridPainterModal extends Modal {
             this.resizeGrid(this.state.columns, v);
         };
 
-        // ── Mirror Variables ──────────────────────────────────────────────
-        // Defines the named data slots shown in mirror cells during review.
-        // Example: "number", "symbol", "mass" for the periodic table.
+        // ── Mirror Variables + Cloze Format button ────────────────────────
         const mirrorVarWrap = container.createDiv({ cls: 'gi-mirror-vars-row' });
-        mirrorVarWrap.createEl('label', {
+        const mirrorVarHdr = mirrorVarWrap.createDiv({ attr: { style: 'display:flex; align-items:center; gap:8px; margin-bottom:4px;' } });
+        mirrorVarHdr.createEl('label', {
             text: 'Mirror slots (comma-separated names):',
-            attr: { style: 'font-size:0.75em; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;' }
+            attr: { style: 'font-size:0.75em; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; flex:1;' }
         });
+        const fmtBtn = mirrorVarHdr.createEl('button', { cls: 'mod-ghost', attr: { style: 'font-size:0.75em; padding:2px 8px;' } });
+        setIcon(fmtBtn, 'sliders-horizontal');
+        fmtBtn.appendText(' Cloze Format…');
+        fmtBtn.onclick = () => new ClozeFormatModal(this.app, this.state.clozeFormat, (fmt) => {
+            this.state.clozeFormat = fmt;
+        }).open();
+
         const mirrorVarInput = mirrorVarWrap.createEl('input', { type: 'text' });
         mirrorVarInput.value = this.state.mirrorVars.join(', ');
         mirrorVarInput.placeholder = 'e.g. number, symbol, mass';
@@ -321,40 +329,6 @@ export class GridPainterModal extends Modal {
                 const cell = this.state.cells[idx];
                 if (cell?.isCloze) this.renderMirrorSlots(cell);
             }
-        };
-
-        // ── Cloze Format ──────────────────────────────────────────────────────
-        // Defines the dict key pattern for namespace-based cloze cells.
-        // Per-cell you then just pick the namespace (e.g. "H", "Fe").
-        const fmtWrap = container.createDiv({ cls: 'gi-mirror-vars-row' });
-        fmtWrap.createEl('label', {
-            text: 'Cloze Format (dict key names, comma-separated):',
-            attr: { style: 'font-size:0.75em; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; display:block; margin-bottom:4px;' }
-        });
-        const fmtRow = fmtWrap.createDiv({ attr: { style: 'display:flex; gap:12px;' } });
-
-        const fmtAnswersWrap = fmtRow.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; flex:1;' } });
-        fmtAnswersWrap.createEl('span', { text: 'Answers:', attr: { style: 'font-size:0.8em; color:var(--text-muted); white-space:nowrap;' } });
-        const fmtAnswersInput = fmtAnswersWrap.createEl('input', { type: 'text' });
-        fmtAnswersInput.value = this.state.clozeFormat?.answers.join(', ') ?? '';
-        fmtAnswersInput.placeholder = 'e.g. name, symbol';
-        fmtAnswersInput.style.flex = '1';
-        fmtAnswersInput.oninput = () => {
-            const keys = fmtAnswersInput.value.split(',').map(s => s.trim()).filter(Boolean);
-            if (!this.state.clozeFormat) this.state.clozeFormat = { answers: [], mirrorData: [] };
-            this.state.clozeFormat.answers = keys;
-        };
-
-        const fmtMirrorWrap = fmtRow.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; flex:1;' } });
-        fmtMirrorWrap.createEl('span', { text: 'Mirror:', attr: { style: 'font-size:0.8em; color:var(--text-muted); white-space:nowrap;' } });
-        const fmtMirrorInput = fmtMirrorWrap.createEl('input', { type: 'text' });
-        fmtMirrorInput.value = this.state.clozeFormat?.mirrorData.join(', ') ?? '';
-        fmtMirrorInput.placeholder = 'e.g. number, mass';
-        fmtMirrorInput.style.flex = '1';
-        fmtMirrorInput.oninput = () => {
-            const keys = fmtMirrorInput.value.split(',').map(s => s.trim()).filter(Boolean);
-            if (!this.state.clozeFormat) this.state.clozeFormat = { answers: [], mirrorData: [] };
-            this.state.clozeFormat.mirrorData = keys;
         };
 
         // Grid canvas — at the top so the full grid is always visible
@@ -824,6 +798,22 @@ export class GridPainterModal extends Modal {
 
                     t.onChange(v => {
                         cell.clozeNamespace = v.trim();
+                        const ns2 = cell.clozeNamespace;
+                        const fmt2 = this.state.clozeFormat;
+                        if (ns2 && fmt2) {
+                            if (fmt2.value) {
+                                const resolved = this.dict[`${ns2}.${fmt2.value}`];
+                                if (resolved !== undefined) {
+                                    cell.value = resolved;
+                                    this.updateCellEl(idx);
+                                    this.updateFocusPreview();
+                                }
+                            }
+                            if (fmt2.notes) {
+                                const resolved = this.dict[`${ns2}.${fmt2.notes}`];
+                                if (resolved !== undefined) cell.clozeNotes = resolved;
+                            }
+                        }
                         this.renderInspector();
                     });
                 });
@@ -835,6 +825,10 @@ export class GridPainterModal extends Modal {
                 const previewEl = this.inspectorEl.createDiv({
                     attr: { style: 'font-size:0.82em; padding:4px 8px 10px; line-height:1.8; border-left:2px solid var(--interactive-accent); margin-bottom:8px;' }
                 });
+                if (fmt.value) {
+                    const val = this.dict[`${ns}.${fmt.value}`] ?? `{{${ns}.${fmt.value}}}`;
+                    previewEl.createEl('div', { text: `Value: ${val}`, attr: { style: 'color:var(--text-normal); font-weight:600;' } });
+                }
                 if (fmt.answers.length) {
                     const vals = fmt.answers.map(k => this.dict[`${ns}.${k}`] ?? `{{${ns}.${k}}}`).join(', ');
                     previewEl.createEl('div', { text: `Answers: ${vals}`, attr: { style: 'color:var(--text-normal);' } });
@@ -842,6 +836,10 @@ export class GridPainterModal extends Modal {
                 if (fmt.mirrorData.length) {
                     const vals = fmt.mirrorData.map(k => this.dict[`${ns}.${k}`] ?? `{{${ns}.${k}}}`).join(', ');
                     previewEl.createEl('div', { text: `Mirror: ${vals}`, attr: { style: 'color:var(--text-muted);' } });
+                }
+                if (fmt.notes) {
+                    const val = this.dict[`${ns}.${fmt.notes}`] ?? `{{${ns}.${fmt.notes}}}`;
+                    previewEl.createEl('div', { text: `Notes: ${val}`, attr: { style: 'color:var(--text-muted);' } });
                 }
             } else {
                 // Manual mode — existing answers and mirror slot inputs
@@ -1117,8 +1115,10 @@ export class GridPainterModal extends Modal {
         // Load clozeFormat if present
         if (cardData.clozeFormat && typeof cardData.clozeFormat === 'object') {
             this.state.clozeFormat = {
+                value: cardData.clozeFormat.value || undefined,
                 answers: Array.isArray(cardData.clozeFormat.answers) ? cardData.clozeFormat.answers : [],
                 mirrorData: Array.isArray(cardData.clozeFormat.mirrorData) ? cardData.clozeFormat.mirrorData : [],
+                notes: cardData.clozeFormat.notes || undefined,
             };
         }
 
@@ -1314,5 +1314,80 @@ export class GridPainterModal extends Modal {
         } else {
             new Notice('No matching card found. Add an "id" field to your JSON for reliable saves.');
         }
+    }
+}
+
+// ── ClozeFormatModal ───────────────────────────────────────────────────────
+
+class ClozeFormatModal extends Modal {
+    private fmt: ClozeFormat;
+    private onSave: (fmt: ClozeFormat) => void;
+
+    constructor(app: App, current: ClozeFormat | null, onSave: (fmt: ClozeFormat) => void) {
+        super(app);
+        this.fmt = current
+            ? { ...current }
+            : { value: '', answers: [], mirrorData: [], notes: '' };
+        this.onSave = onSave;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl('h3', { text: 'Cloze Format', attr: { style: 'margin-bottom:4px;' } });
+        contentEl.createEl('p', {
+            text: 'Define dict key names. When a cell has a Namespace set, these keys are looked up automatically from the dictionary.',
+            attr: { style: 'color:var(--text-muted); font-size:0.85em; margin-bottom:16px;' }
+        });
+
+        new Setting(contentEl)
+            .setName('Value key')
+            .setDesc('Sets the cell display value — e.g. "number" shows 1 for H, 2 for He')
+            .addText(t => {
+                t.setValue(this.fmt.value ?? '');
+                t.inputEl.placeholder = 'e.g. number';
+                t.onChange(v => { this.fmt.value = v.trim() || undefined; });
+            });
+
+        new Setting(contentEl)
+            .setName('Answer keys')
+            .setDesc('Comma-separated — e.g. name, symbol')
+            .addText(t => {
+                t.setValue(this.fmt.answers.join(', '));
+                t.inputEl.placeholder = 'e.g. name, symbol';
+                t.onChange(v => {
+                    this.fmt.answers = v.split(',').map(s => s.trim()).filter(Boolean);
+                });
+            });
+
+        new Setting(contentEl)
+            .setName('Mirror keys')
+            .setDesc('Comma-separated — e.g. number, mass')
+            .addText(t => {
+                t.setValue(this.fmt.mirrorData.join(', '));
+                t.inputEl.placeholder = 'e.g. number, mass';
+                t.onChange(v => {
+                    this.fmt.mirrorData = v.split(',').map(s => s.trim()).filter(Boolean);
+                });
+            });
+
+        new Setting(contentEl)
+            .setName('Notes key')
+            .setDesc('Shown on incorrect screen — e.g. group')
+            .addText(t => {
+                t.setValue(this.fmt.notes ?? '');
+                t.inputEl.placeholder = 'e.g. group';
+                t.onChange(v => { this.fmt.notes = v.trim() || undefined; });
+            });
+
+        const footer = contentEl.createDiv({ attr: { style: 'margin-top:20px; display:flex; gap:8px; justify-content:flex-end;' } });
+        footer.createEl('button', { text: 'Cancel', cls: 'mod-ghost' }).onclick = () => this.close();
+        footer.createEl('button', { text: 'Save', cls: 'mod-cta' }).onclick = () => {
+            this.onSave(this.fmt);
+            this.close();
+        };
+    }
+
+    onClose() {
+        this.contentEl.empty();
     }
 }
