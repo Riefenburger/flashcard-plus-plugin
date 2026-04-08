@@ -120,6 +120,21 @@ function computeAbsorbCandidates(state: PainterState): Set<number> {
 
 const AUTO_CAT_PATTERN = /^cell-\d+-\d+$/;
 
+function painterContrastColor(css: string): string | null {
+    const m = css.match(/background(?:-color)?:\s*([^;]+)/);
+    if (!m) return null;
+    const raw = (m[1] ?? '').trim();
+    const hex6 = raw.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    const hex3 = raw.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+    let r = 0, g = 0, b = 0;
+    if (hex6) { r = parseInt(hex6[1]!, 16); g = parseInt(hex6[2]!, 16); b = parseInt(hex6[3]!, 16); }
+    else if (hex3) { r = parseInt(hex3[1]! + hex3[1]!, 16); g = parseInt(hex3[2]! + hex3[2]!, 16); b = parseInt(hex3[3]! + hex3[3]!, 16); }
+    else return null;
+    const toL = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * toL(r) + 0.7152 * toL(g) + 0.0722 * toL(b);
+    return L > 0.179 ? '#000000' : '#ffffff';
+}
+
 /**
  * Splits a CSS string into flat property declarations and selector rule blocks.
  * Uses the last semicolon before each { to find where the selector starts,
@@ -458,6 +473,11 @@ export class GridPainterModal extends Modal {
         if (cell.customCss) {
             const flat = splitFlatAndRules(cell.customCss).flat;
             if (flat) css += (css ? '; ' : '') + flat;
+        }
+        // Auto-contrast text color if not already set
+        if (css && !/\bcolor\s*:/.test(css)) {
+            const auto = painterContrastColor(css);
+            if (auto) css += `; color: ${auto}`;
         }
         return css;
     }
@@ -800,10 +820,14 @@ export class GridPainterModal extends Modal {
                     });
                     t.inputEl.setAttribute('list', listId);
 
-                    t.onChange(v => {
+                    const wasFormatMode = !!(cell.clozeNamespace && hasFormat);
+                    t.inputEl.oninput = (e) => {
+                        const v = (e.target as HTMLInputElement).value;
+                        const prevNs = cell.clozeNamespace;
                         cell.clozeNamespace = v.trim();
                         const ns2 = cell.clozeNamespace;
                         const fmt2 = this.state.clozeFormat;
+
                         if (ns2 && fmt2) {
                             if (fmt2.value) {
                                 cell.value = `{{ ${ns2}.${fmt2.value} }}`;
@@ -813,9 +837,36 @@ export class GridPainterModal extends Modal {
                             if (fmt2.notes) {
                                 cell.clozeNotes = `{{ ${ns2}.${fmt2.notes} }}`;
                             }
+                            // Update preview in-place if it already exists
+                            const previewEl = this.inspectorEl?.querySelector('.gi-ns-preview') as HTMLElement | null;
+                            if (previewEl) {
+                                previewEl.empty();
+                                if (fmt2.value) {
+                                    const val = this.dict[`${ns2}.${fmt2.value}`] ?? `{{${ns2}.${fmt2.value}}}`;
+                                    previewEl.createEl('div', { text: `Value: ${val}`, attr: { style: 'color:var(--text-normal); font-weight:600;' } });
+                                }
+                                if (fmt2.answers.length) {
+                                    const vals = fmt2.answers.map(k => this.dict[`${ns2}.${k}`] ?? `{{${ns2}.${k}}}`).join(', ');
+                                    previewEl.createEl('div', { text: `Answers: ${vals}`, attr: { style: 'color:var(--text-normal);' } });
+                                }
+                                if (fmt2.mirrorData.length) {
+                                    const vals = fmt2.mirrorData.map(k => this.dict[`${ns2}.${k}`] ?? `{{${ns2}.${k}}}`).join(', ');
+                                    previewEl.createEl('div', { text: `Mirror: ${vals}`, attr: { style: 'color:var(--text-muted);' } });
+                                }
+                                if (fmt2.notes) {
+                                    const val = this.dict[`${ns2}.${fmt2.notes}`] ?? `{{${ns2}.${fmt2.notes}}}`;
+                                    previewEl.createEl('div', { text: `Notes: ${val}`, attr: { style: 'color:var(--text-muted);' } });
+                                }
+                            }
                         }
-                        this.renderInspector();
-                    });
+
+                        // Only full re-render when crossing the mode boundary (empty ↔ non-empty)
+                        const isFormatMode = !!(ns2 && hasFormat);
+                        const prevFormatMode = !!(prevNs && hasFormat);
+                        if (isFormatMode !== prevFormatMode || (!prevNs && !ns2)) {
+                            this.renderInspector();
+                        }
+                    };
                 });
 
             if (cell.clozeNamespace && hasFormat) {
@@ -823,6 +874,7 @@ export class GridPainterModal extends Modal {
                 const fmt = this.state.clozeFormat!;
                 const ns = cell.clozeNamespace;
                 const previewEl = this.inspectorEl.createDiv({
+                    cls: 'gi-ns-preview',
                     attr: { style: 'font-size:0.82em; padding:4px 8px 10px; line-height:1.8; border-left:2px solid var(--interactive-accent); margin-bottom:8px;' }
                 });
                 if (fmt.value) {

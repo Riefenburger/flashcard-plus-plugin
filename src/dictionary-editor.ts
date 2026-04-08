@@ -154,6 +154,11 @@ export class DictionaryEditorModal extends Modal {
             this.namespaces = updated;
             nsInput.value = '';
             this.render();
+            // Focus the key input of the newly created (first) namespace block
+            setTimeout(() => {
+                const firstKeyInput = this.contentEl2.querySelector('.gi-dict-ns-list .gi-dict-add-row .gi-dict-key-input') as HTMLInputElement | null;
+                firstKeyInput?.focus();
+            }, 20);
         };
         nsInput.onkeydown = (e) => { if (e.key === 'Enter') addNsBtn.click(); };
 

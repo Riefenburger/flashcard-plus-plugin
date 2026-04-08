@@ -40,6 +40,35 @@ function resolveFromFormat(keys: string[], ns: string, dict: Record<string, stri
     return keys.map(key => dict[`${ns}.${key}`] ?? key);
 }
 
+/**
+ * Given a CSS string, extract the background color and return 'black' or 'white'
+ * whichever has better contrast against it. Returns null if no color is found.
+ */
+function contrastColor(css: string): string | null {
+    const m = css.match(/background(?:-color)?:\s*([^;]+)/);
+    if (!m) return null;
+    const raw = (m[1] ?? '').trim();
+    // Parse hex colors only (#rgb or #rrggbb)
+    let r = 0, g = 0, b = 0;
+    const hex6 = raw.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    const hex3 = raw.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+    if (hex6) {
+        r = parseInt(hex6[1]!, 16);
+        g = parseInt(hex6[2]!, 16);
+        b = parseInt(hex6[3]!, 16);
+    } else if (hex3) {
+        r = parseInt(hex3[1]! + hex3[1]!, 16);
+        g = parseInt(hex3[2]! + hex3[2]!, 16);
+        b = parseInt(hex3[3]! + hex3[3]!, 16);
+    } else {
+        return null;
+    }
+    // Relative luminance (WCAG formula)
+    const toLinear = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    return L > 0.179 ? '#000000' : '#ffffff';
+}
+
 export class GridEngine {
     static renderInModal(
         _app: App,
@@ -125,7 +154,13 @@ export class GridEngine {
                 if (catCssRaw) {
                     const { flat, rules } = splitFlatAndRules(catCssRaw);
                     if (flat) {
-                        cell.setAttribute('style', cell.getAttribute('style') + '; ' + flat);
+                        let applied = flat;
+                        // Auto-contrast text color unless the CSS already sets one
+                        if (!/\bcolor\s*:/.test(flat)) {
+                            const auto = contrastColor(flat);
+                            if (auto) applied += `; color: ${auto}`;
+                        }
+                        cell.setAttribute('style', cell.getAttribute('style') + '; ' + applied);
                     }
                     if (rules && isMirror) {
                         const scopeId = `gi-m-${rIdx}-${aIdx}`;
