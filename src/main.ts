@@ -6,6 +6,7 @@ import { GridPainterModal } from 'grid-painter';
 import { CardCreatorPickerModal } from 'card-creator';
 import { TraditionalCreatorModal } from './creators/traditional-creator';
 import { DictionaryEditorModal, BrowseDictionaryModal } from './dictionary-editor';
+import { GeoDeckModal } from './geo-deck';
 import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
@@ -48,6 +49,13 @@ export default class GrandInventoryPlugin extends Plugin {
             id: 'browse-dictionary',
             name: 'Browse Flashcard Dictionary',
             callback: () => new BrowseDictionaryModal(this.app).open()
+        });
+
+        // Command palette — generate a geography map deck
+        this.addCommand({
+            id: 'generate-geo-deck',
+            name: 'Generate Geography Deck',
+            callback: () => new GeoDeckModal(this.app).open()
         });
 
         // Inline renderer — inventory-dict TOML blocks

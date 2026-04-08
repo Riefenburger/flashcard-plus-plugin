@@ -75,11 +75,18 @@ export class SessionModal extends Modal {
             margin-bottom: 8px;
         `}});
 
-        // Build clozeId → deck lookup
+        // Build clozeId → deck + front text lookup
         const clozeToDeck = new Map<string, string>();
+        const clozeToFront = new Map<string, string>();
         this.allCards.forEach(card => {
             (card.clozes || []).forEach((c: any) => {
-                if (c.id) clozeToDeck.set(c.id, card.deck);
+                if (!c.id) return;
+                clozeToDeck.set(c.id, card.deck);
+                // Use front text, or featureName/featureId for map cards, or coords for grid
+                const front = c.front || c.featureName || c.featureId
+                    || (Array.isArray(c.coords) ? `(${c.coords.join(',')})` : null)
+                    || c.id;
+                clozeToFront.set(c.id, String(front));
             });
         });
 
@@ -88,6 +95,7 @@ export class SessionModal extends Modal {
             const xPos = Math.min((card.interval / 30) * 100, 95);
             const yPos = Math.min(((card.ease - 1.3) / 1.7) * 100, 95);
             const deck = clozeToDeck.get(clozeId) ?? '';
+            const front = clozeToFront.get(clozeId) ?? clozeId;
             const color = deck ? deckColor(deck) : 'var(--interactive-accent)';
 
             const dot = plot.createDiv({ attr: { style: `
@@ -95,8 +103,9 @@ export class SessionModal extends Modal {
                 width: 8px; height: 8px;
                 background: ${color}; border-radius: 50%; opacity: 0.85;
                 transform: translate(-50%, 50%);
+                cursor: default;
             `}});
-            dot.title = deck || clozeId;
+            dot.title = `${front}${deck ? ` · ${deck}` : ''}\n${card.interval}d · ease ${card.ease.toFixed(2)}`;
         });
 
         stats.createEl("small", {
