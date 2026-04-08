@@ -466,6 +466,32 @@ button.mod-ghost:hover {
     flex-shrink: 0;
 }
 
+/* Wide mode: no cell selected — palette fills full row, swatches go horizontal */
+.gi-painter-palette--wide {
+    max-width: 100%;
+    flex: 1;
+}
+
+.gi-painter-palette--wide .gi-palette-swatches {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.gi-painter-palette--wide .gi-palette-tools {
+    margin-top: 6px;
+}
+
+/* Pointer cursor on color swatches to hint they're clickable */
+.gi-swatch-color {
+    cursor: pointer;
+}
+.gi-swatch-color:hover {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
+    border-radius: 2px;
+}
+
 .gi-painter-inspector {
     flex: 1;
     min-width: 0;

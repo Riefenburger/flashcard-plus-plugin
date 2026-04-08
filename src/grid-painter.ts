@@ -484,12 +484,13 @@ export class GridPainterModal extends Modal {
         el.toggleClass('gi-dimmed', isFocusMode && !isSelected && !isAbsorbCandidate);
 
         el.empty();
+        const displayVal = cell.value.replace(/\{\{([^}]+)\}\}/g, (_, key) => this.dict[key.trim()] ?? `{{${key}}}`);
         if (cell.isMirror) {
             const badge = el.createSpan({ cls: 'gi-mirror-badge', text: '◈' });
-            if (cell.value) el.createSpan({ text: ' ' + cell.value });
+            if (cell.value) el.createSpan({ text: ' ' + displayVal });
             void badge;
         } else if (cell.value) {
-            el.createSpan({ text: cell.value });
+            el.createSpan({ text: displayVal });
         } else {
             const { row, col } = cellCoords(this.state.columns, idx);
             el.createSpan({ text: `${row},${col}`, cls: 'gi-painter-cell-coord' });
@@ -555,6 +556,7 @@ export class GridPainterModal extends Modal {
         this.state.selectedIndex = -1;
         this.focusPreviewEl = null;
         this.renderGrid();
+        this.renderPalette();
         this.renderInspector();
     }
 
@@ -637,6 +639,7 @@ export class GridPainterModal extends Modal {
         this.state.selectedIndex = index;
         this.focusCellOnRender = true;
         this.enterFocusMode(index);
+        this.renderPalette();
         this.renderInspector();
     }
 
@@ -672,7 +675,8 @@ export class GridPainterModal extends Modal {
         const preview = previewWrap.createDiv({ cls: 'gi-cell-preview' });
         const css = this.resolvedCss(cell);
         preview.setAttribute('style', css);
-        preview.createEl('span', { text: cell.value || '?', cls: 'gi-cell-preview-text' });
+        const previewText = cell.value.replace(/\{\{([^}]+)\}\}/g, (_, key) => this.dict[key.trim()] ?? `{{${key}}}`);
+        preview.createEl('span', { text: previewText || '?', cls: 'gi-cell-preview-text' });
         this.focusPreviewEl = preview;
 
         // ── Value ──
@@ -802,16 +806,12 @@ export class GridPainterModal extends Modal {
                         const fmt2 = this.state.clozeFormat;
                         if (ns2 && fmt2) {
                             if (fmt2.value) {
-                                const resolved = this.dict[`${ns2}.${fmt2.value}`];
-                                if (resolved !== undefined) {
-                                    cell.value = resolved;
-                                    this.updateCellEl(idx);
-                                    this.updateFocusPreview();
-                                }
+                                cell.value = `{{ ${ns2}.${fmt2.value} }}`;
+                                this.updateCellEl(idx);
+                                this.updateFocusPreview();
                             }
                             if (fmt2.notes) {
-                                const resolved = this.dict[`${ns2}.${fmt2.notes}`];
-                                if (resolved !== undefined) cell.clozeNotes = resolved;
+                                cell.clozeNotes = `{{ ${ns2}.${fmt2.notes} }}`;
                             }
                         }
                         this.renderInspector();
@@ -911,6 +911,10 @@ export class GridPainterModal extends Modal {
         if (!this.paletteEl) return;
         this.paletteEl.empty();
 
+        // Wide layout when no cell is selected — swatches flow horizontally
+        const isWide = this.state.selectedIndex < 0;
+        this.paletteEl.toggleClass('gi-painter-palette--wide', isWide);
+
         this.paletteEl.createEl('h4', { text: 'Brush Palette', attr: { style: 'margin: 0 0 8px 0;' } });
 
         const swatchRow = this.paletteEl.createDiv({ cls: 'gi-palette-swatches' });
@@ -918,7 +922,15 @@ export class GridPainterModal extends Modal {
         this.state.categories.forEach(cat => {
             const btn = swatchRow.createEl('button', { cls: 'gi-painter-swatch' });
             btn.dataset.cat = cat.name;
-            btn.createSpan({ cls: 'gi-swatch-color', attr: { style: cat.css } });
+
+            // Color swatch — click to edit CSS
+            const colorSwatch = btn.createSpan({ cls: 'gi-swatch-color', attr: { style: cat.css } });
+            colorSwatch.title = 'Click to edit category CSS';
+            colorSwatch.onclick = (e) => {
+                e.stopPropagation();
+                this.openEditCategoryDialog(cat);
+            };
+
             btn.createSpan({ text: cat.name });
             const isActive = this.state.brushMode === 'category' && this.state.activeBrush === cat.name;
             btn.toggleClass('gi-brush-active', isActive);
@@ -1035,6 +1047,15 @@ export class GridPainterModal extends Modal {
         };
 
         nameInput.focus();
+    }
+
+    private openEditCategoryDialog(cat: PainterCategory) {
+        // Open a small modal to rename and re-CSS an existing category
+        new CategoryEditModal(this.app, cat, () => {
+            this.renderPalette();
+            this.renderGrid();
+            this.renderInspector();
+        }).open();
     }
 
     // ── Load from card data ────────────────────────────────────────────────
@@ -1315,6 +1336,79 @@ export class GridPainterModal extends Modal {
             new Notice('No matching card found. Add an "id" field to your JSON for reliable saves.');
         }
     }
+}
+
+// ── CategoryEditModal ──────────────────────────────────────────────────────
+
+class CategoryEditModal extends Modal {
+    private cat: PainterCategory;
+    private onSave: () => void;
+
+    constructor(app: App, cat: PainterCategory, onSave: () => void) {
+        super(app);
+        this.cat = cat;
+        this.onSave = onSave;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl('h3', { text: 'Edit Category', attr: { style: 'margin-bottom:12px;' } });
+
+        new Setting(contentEl)
+            .setName('Name')
+            .addText(t => {
+                t.setValue(this.cat.name);
+                t.onChange(v => { this.cat.name = v; });
+            });
+
+        // Color shortcut — sets background-color in the CSS string
+        const bgMatch = this.cat.css.match(/background(?:-color)?:\s*([^;]+)/);
+        const currentColor = bgMatch ? (bgMatch[1] ?? '').trim() : '#ffffff';
+        new Setting(contentEl)
+            .setName('Background color')
+            .setDesc('Quick pick — updates the background in CSS below')
+            .addColorPicker(cp => {
+                // HTML color picker needs a 6-digit hex
+                const hexColor = currentColor.startsWith('#') && currentColor.length === 7 ? currentColor : '#888888';
+                cp.setValue(hexColor);
+                cp.onChange(color => {
+                    // Replace or prepend the background value in the CSS textarea
+                    if (/background(?:-color)?:/.test(this.cat.css)) {
+                        this.cat.css = this.cat.css.replace(/background(?:-color)?:\s*[^;]+/, `background: ${color}`);
+                    } else {
+                        this.cat.css = `background: ${color}; ` + this.cat.css;
+                    }
+                    cssInput.value = this.cat.css;
+                    preview.setAttribute('style', this.cat.css);
+                });
+            });
+
+        // Live preview
+        const previewRow = contentEl.createDiv({ attr: { style: 'display:flex; align-items:center; gap:10px; margin-bottom:8px;' } });
+        const preview = previewRow.createDiv({ attr: { style: `width:32px; height:32px; border-radius:4px; border:1px solid var(--background-modifier-border); ${this.cat.css}` } });
+        previewRow.createEl('small', { text: 'Preview', attr: { style: 'color:var(--text-muted);' } });
+
+        contentEl.createEl('small', { text: 'CSS', attr: { style: 'display:block; margin-bottom:4px; font-weight:600;' } });
+        const cssInput = contentEl.createEl('textarea');
+        cssInput.value = this.cat.css;
+        cssInput.style.width = '100%';
+        cssInput.style.fontFamily = 'monospace';
+        cssInput.style.fontSize = '0.85em';
+        cssInput.rows = 4;
+        cssInput.oninput = () => {
+            this.cat.css = cssInput.value;
+            preview.setAttribute('style', `width:32px; height:32px; border-radius:4px; border:1px solid var(--background-modifier-border); ${this.cat.css}`);
+        };
+
+        const footer = contentEl.createDiv({ attr: { style: 'margin-top:16px; display:flex; gap:8px; justify-content:flex-end;' } });
+        footer.createEl('button', { text: 'Cancel', cls: 'mod-ghost' }).onclick = () => this.close();
+        footer.createEl('button', { text: 'Save', cls: 'mod-cta' }).onclick = () => {
+            this.onSave();
+            this.close();
+        };
+    }
+
+    onClose() { this.contentEl.empty(); }
 }
 
 // ── ClozeFormatModal ───────────────────────────────────────────────────────
