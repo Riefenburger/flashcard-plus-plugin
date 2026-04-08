@@ -36,6 +36,10 @@ function resolve(str: string, dict: Record<string, string>): string {
     return str.replace(/\{\{([^}]+)\}\}/g, (_, key) => dict[key.trim()] ?? `{{${key}}}`);
 }
 
+function resolveFromFormat(keys: string[], ns: string, dict: Record<string, string>): string[] {
+    return keys.map(key => dict[`${ns}.${key}`] ?? key);
+}
+
 export class GridEngine {
     static renderInModal(
         _app: App,
@@ -59,8 +63,18 @@ export class GridEngine {
             if (Array.isArray(m.coords)) mirrorSet.add(`${m.coords[0]}-${m.coords[1]}`);
         });
 
-        const mirrorDataArr: string[] = (Array.isArray(cloze.mirrorData) ? cloze.mirrorData : [])
-            .map((v: string) => resolve(v, dict));
+        const fmt = cardData.clozeFormat;
+        const ns: string | undefined = cloze.namespace;
+        const useFormat = !!(ns && fmt);
+
+        const mirrorDataArr: string[] = useFormat
+            ? resolveFromFormat(Array.isArray(fmt.mirrorData) ? fmt.mirrorData : [], ns!, dict)
+            : (Array.isArray(cloze.mirrorData) ? cloze.mirrorData : []).map((v: string) => resolve(v, dict));
+
+        const answersArr: string[] = useFormat
+            ? resolveFromFormat(Array.isArray(fmt.answers) ? fmt.answers : [], ns!, dict)
+            : (cloze.answers || []).map((a: string) => resolve(a, dict));
+
         const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
 
         // ── Grid ────────────────────────────────────────────────────────────
@@ -180,7 +194,7 @@ export class GridEngine {
 
         const submit = (answer: string) => {
             const userAnswer = answer.trim().toLowerCase();
-            const isCorrect = (cloze.answers || []).some((a: string) => resolve(a, dict).toLowerCase() === userAnswer);
+            const isCorrect = answersArr.some((a: string) => a.toLowerCase() === userAnswer);
             input.disabled = true;
             onComplete(isCorrect, answer.trim());
         };

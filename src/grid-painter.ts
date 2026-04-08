@@ -1,5 +1,6 @@
 import { App, Modal, Notice, TFile, setIcon } from 'obsidian';
 import { Setting } from 'obsidian';
+import { parseTOMLDict } from './utils/toml-dict';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,7 @@ interface PainterCell {
     isCloze: boolean;
     clozeAnswers: string;      // comma-separated, split at export time
     clozeNotes: string;
+    clozeNamespace: string;    // dict namespace for format-based clozes (e.g. "H", "Fe")
     mirrorData: string;        // newline-separated info shown in mirror cells when this cloze is active
     isMirror: boolean;         // this cell shows the active cloze's mirrorData during review
 }
@@ -19,6 +21,11 @@ interface PainterCell {
 interface PainterCategory {
     name: string;
     css: string;
+}
+
+interface ClozeFormat {
+    answers: string[];    // dict key names resolved as answers (e.g. ["name", "symbol"])
+    mirrorData: string[]; // dict key names resolved as mirror data (e.g. ["number", "mass"])
 }
 
 interface PainterState {
@@ -34,6 +41,7 @@ interface PainterState {
     selectedIndex: number;     // -1 = nothing selected
     spanMode: 'off' | 'expand' | 'shrink';
     mirrorVars: string[];      // named variable slots shared across all mirror cells
+    clozeFormat: ClozeFormat | null;  // card-level template for namespace-based clozes
 }
 
 export interface EditContext {
@@ -48,7 +56,7 @@ function makeDefaultCell(): PainterCell {
     return {
         value: '', category: null, customCss: '',
         colSpan: 1, rowSpan: 1,
-        isCloze: false, clozeAnswers: '', clozeNotes: '',
+        isCloze: false, clozeAnswers: '', clozeNotes: '', clozeNamespace: '',
         mirrorData: '', isMirror: false,
     };
 }
@@ -160,6 +168,8 @@ export class GridPainterModal extends Modal {
     private gridListenerAC: AbortController | null = null;
     private focusCellOnRender = false;  // true only when first selecting a cell
     private mirrorSlotContainerEl: HTMLElement | null = null;
+    private dictNamespaces: string[] = [];  // all namespace keys from vault's inventory-dict blocks
+    private dict: Record<string, string> = {};  // flat "Ns.key" → value for preview
 
     constructor(app: App, editContext?: EditContext) {
         super(app);
@@ -177,6 +187,7 @@ export class GridPainterModal extends Modal {
             selectedIndex: -1,
             spanMode: 'off',
             mirrorVars: [],
+            clozeFormat: null,
         };
         this.initCells();
         if (editContext) this.loadFromCardData(editContext.cardData);
@@ -210,6 +221,30 @@ export class GridPainterModal extends Modal {
         this.renderPalette();
         this.renderGrid();
         this.renderInspector();
+        this.loadDictNamespaces();  // async, populates namespace suggestions
+    }
+
+    private async loadDictNamespaces() {
+        const namespaces = new Set<string>();
+        const dict: Record<string, string> = {};
+        for (const file of this.app.vault.getMarkdownFiles()) {
+            const content = await this.app.vault.read(file);
+            const re = /```inventory-dict\s*([\s\S]*?)\s*```/g;
+            let m;
+            while ((m = re.exec(content)) !== null) {
+                try {
+                    const data = parseTOMLDict(m[1] ?? '');
+                    for (const [ns, fields] of Object.entries(data)) {
+                        namespaces.add(ns);
+                        for (const [k, v] of Object.entries(fields)) {
+                            dict[`${ns}.${k}`] = v;
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+        }
+        this.dictNamespaces = [...namespaces].sort();
+        this.dict = dict;
     }
 
     onClose() {
@@ -286,6 +321,40 @@ export class GridPainterModal extends Modal {
                 const cell = this.state.cells[idx];
                 if (cell?.isCloze) this.renderMirrorSlots(cell);
             }
+        };
+
+        // ── Cloze Format ──────────────────────────────────────────────────────
+        // Defines the dict key pattern for namespace-based cloze cells.
+        // Per-cell you then just pick the namespace (e.g. "H", "Fe").
+        const fmtWrap = container.createDiv({ cls: 'gi-mirror-vars-row' });
+        fmtWrap.createEl('label', {
+            text: 'Cloze Format (dict key names, comma-separated):',
+            attr: { style: 'font-size:0.75em; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; display:block; margin-bottom:4px;' }
+        });
+        const fmtRow = fmtWrap.createDiv({ attr: { style: 'display:flex; gap:12px;' } });
+
+        const fmtAnswersWrap = fmtRow.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; flex:1;' } });
+        fmtAnswersWrap.createEl('span', { text: 'Answers:', attr: { style: 'font-size:0.8em; color:var(--text-muted); white-space:nowrap;' } });
+        const fmtAnswersInput = fmtAnswersWrap.createEl('input', { type: 'text' });
+        fmtAnswersInput.value = this.state.clozeFormat?.answers.join(', ') ?? '';
+        fmtAnswersInput.placeholder = 'e.g. name, symbol';
+        fmtAnswersInput.style.flex = '1';
+        fmtAnswersInput.oninput = () => {
+            const keys = fmtAnswersInput.value.split(',').map(s => s.trim()).filter(Boolean);
+            if (!this.state.clozeFormat) this.state.clozeFormat = { answers: [], mirrorData: [] };
+            this.state.clozeFormat.answers = keys;
+        };
+
+        const fmtMirrorWrap = fmtRow.createDiv({ attr: { style: 'display:flex; align-items:center; gap:6px; flex:1;' } });
+        fmtMirrorWrap.createEl('span', { text: 'Mirror:', attr: { style: 'font-size:0.8em; color:var(--text-muted); white-space:nowrap;' } });
+        const fmtMirrorInput = fmtMirrorWrap.createEl('input', { type: 'text' });
+        fmtMirrorInput.value = this.state.clozeFormat?.mirrorData.join(', ') ?? '';
+        fmtMirrorInput.placeholder = 'e.g. number, mass';
+        fmtMirrorInput.style.flex = '1';
+        fmtMirrorInput.oninput = () => {
+            const keys = fmtMirrorInput.value.split(',').map(s => s.trim()).filter(Boolean);
+            if (!this.state.clozeFormat) this.state.clozeFormat = { answers: [], mirrorData: [] };
+            this.state.clozeFormat.mirrorData = keys;
         };
 
         // Grid canvas — at the top so the full grid is always visible
@@ -726,13 +795,68 @@ export class GridPainterModal extends Modal {
             });
 
         if (cell.isCloze) {
+            const hasFormat = !!(this.state.clozeFormat?.answers.length || this.state.clozeFormat?.mirrorData.length);
+
+            // ── Namespace (shortcut when Cloze Format is set) ──────────────
             new Setting(this.inspectorEl)
-                .setName('Answers')
-                .setDesc('Comma-separated (e.g. Hydrogen, H)')
+                .setName('Namespace')
+                .setDesc(hasFormat ? 'Pick a dict namespace — auto-fills answers & mirror from Cloze Format' : 'Set Cloze Format above to use namespace shortcuts')
                 .addText(t => {
-                    t.setValue(cell.clozeAnswers);
-                    t.onChange(v => { cell.clozeAnswers = v; });
+                    t.setValue(cell.clozeNamespace);
+                    t.inputEl.placeholder = hasFormat ? 'e.g. H, Fe, Au' : '(set Cloze Format first)';
+                    t.inputEl.disabled = !hasFormat;
+
+                    // Autocomplete datalist from loaded namespaces
+                    const listId = 'gi-ns-datalist';
+                    let dl = this.contentEl.querySelector(`#${listId}`) as HTMLDataListElement | null;
+                    if (!dl) {
+                        dl = document.createElement('datalist');
+                        dl.id = listId;
+                        this.contentEl.appendChild(dl);
+                    }
+                    dl.innerHTML = '';
+                    this.dictNamespaces.forEach(ns => {
+                        const opt = document.createElement('option');
+                        opt.value = ns;
+                        dl!.appendChild(opt);
+                    });
+                    t.inputEl.setAttribute('list', listId);
+
+                    t.onChange(v => {
+                        cell.clozeNamespace = v.trim();
+                        this.renderInspector();
+                    });
                 });
+
+            if (cell.clozeNamespace && hasFormat) {
+                // Format mode — show resolved preview, no manual inputs needed
+                const fmt = this.state.clozeFormat!;
+                const ns = cell.clozeNamespace;
+                const previewEl = this.inspectorEl.createDiv({
+                    attr: { style: 'font-size:0.82em; padding:4px 8px 10px; line-height:1.8; border-left:2px solid var(--interactive-accent); margin-bottom:8px;' }
+                });
+                if (fmt.answers.length) {
+                    const vals = fmt.answers.map(k => this.dict[`${ns}.${k}`] ?? `{{${ns}.${k}}}`).join(', ');
+                    previewEl.createEl('div', { text: `Answers: ${vals}`, attr: { style: 'color:var(--text-normal);' } });
+                }
+                if (fmt.mirrorData.length) {
+                    const vals = fmt.mirrorData.map(k => this.dict[`${ns}.${k}`] ?? `{{${ns}.${k}}}`).join(', ');
+                    previewEl.createEl('div', { text: `Mirror: ${vals}`, attr: { style: 'color:var(--text-muted);' } });
+                }
+            } else {
+                // Manual mode — existing answers and mirror slot inputs
+                new Setting(this.inspectorEl)
+                    .setName('Answers')
+                    .setDesc('Comma-separated (e.g. Hydrogen, H)')
+                    .addText(t => {
+                        t.setValue(cell.clozeAnswers);
+                        t.onChange(v => { cell.clozeAnswers = v; });
+                    });
+
+                // ── Mirror data — one field per named slot ──────────────────
+                this.mirrorSlotContainerEl = this.inspectorEl.createDiv();
+                this.renderMirrorSlots(cell);
+            }
 
             new Setting(this.inspectorEl)
                 .setName('Notes')
@@ -741,10 +865,6 @@ export class GridPainterModal extends Modal {
                     t.setValue(cell.clozeNotes);
                     t.onChange(v => { cell.clozeNotes = v; });
                 });
-
-            // ── Mirror data — one field per named slot ──────────────────────
-            this.mirrorSlotContainerEl = this.inspectorEl.createDiv();
-            this.renderMirrorSlots(cell);
         }
     }
 
@@ -994,6 +1114,14 @@ export class GridPainterModal extends Modal {
             });
         });
 
+        // Load clozeFormat if present
+        if (cardData.clozeFormat && typeof cardData.clozeFormat === 'object') {
+            this.state.clozeFormat = {
+                answers: Array.isArray(cardData.clozeFormat.answers) ? cardData.clozeFormat.answers : [],
+                mirrorData: Array.isArray(cardData.clozeFormat.mirrorData) ? cardData.clozeFormat.mirrorData : [],
+            };
+        }
+
         // Load clozes using array-index coords
         const clozes: any[] = Array.isArray(cardData.clozes) ? cardData.clozes : [];
         clozes.forEach((cloze: any) => {
@@ -1004,13 +1132,18 @@ export class GridPainterModal extends Modal {
             const cell = this.state.cells[cellIdx];
             if (!cell) return;
             cell.isCloze = true;
-            cell.clozeAnswers = Array.isArray(cloze.answers)
-                ? cloze.answers.join(', ')
-                : (String(cloze.answers || ''));
             cell.clozeNotes = cloze.notes || '';
-            cell.mirrorData = Array.isArray(cloze.mirrorData)
-                ? cloze.mirrorData.join('\n')
-                : (cloze.mirrorData || '');
+            if (cloze.namespace) {
+                // Format-based cloze — just store namespace
+                cell.clozeNamespace = cloze.namespace;
+            } else {
+                cell.clozeAnswers = Array.isArray(cloze.answers)
+                    ? cloze.answers.join(', ')
+                    : (String(cloze.answers || ''));
+                cell.mirrorData = Array.isArray(cloze.mirrorData)
+                    ? cloze.mirrorData.join('\n')
+                    : (cloze.mirrorData || '');
+            }
         });
 
         // Load mirror variable slot names
@@ -1066,16 +1199,20 @@ export class GridPainterModal extends Modal {
                 rowData.push(`${cell.value}:${catKey}:${cell.colSpan}:${cell.rowSpan}`);
 
                 if (cell.isCloze) {
-                    const answers = cell.clozeAnswers
-                        .split(',').map(s => s.trim()).filter(Boolean);
+                    const useFormat = !!(cell.clozeNamespace && this.state.clozeFormat);
                     const entry: any = {
                         id: `cloze-${r}-${arrayIdx}`,
                         coords: [r, arrayIdx],
-                        answers
                     };
                     if (cell.clozeNotes) entry.notes = cell.clozeNotes;
-                    if (cell.mirrorData.trim()) {
-                        entry.mirrorData = cell.mirrorData.split('\n').map(s => s.trim()).filter(Boolean);
+                    if (useFormat) {
+                        entry.namespace = cell.clozeNamespace;
+                    } else {
+                        const answers = cell.clozeAnswers.split(',').map(s => s.trim()).filter(Boolean);
+                        entry.answers = answers;
+                        if (cell.mirrorData.trim()) {
+                            entry.mirrorData = cell.mirrorData.split('\n').map(s => s.trim()).filter(Boolean);
+                        }
                     }
                     clozes.push(entry);
                 }
@@ -1110,6 +1247,9 @@ export class GridPainterModal extends Modal {
         }
         if (mirrors.length > 0) result.mirrors = mirrors;
         if (state.mirrorVars.length > 0) result.mirrorVars = state.mirrorVars;
+        if (state.clozeFormat && (state.clozeFormat.answers.length > 0 || state.clozeFormat.mirrorData.length > 0)) {
+            result.clozeFormat = state.clozeFormat;
+        }
 
         return result;
     }
