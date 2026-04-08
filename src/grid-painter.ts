@@ -794,89 +794,56 @@ export class GridPainterModal extends Modal {
 
         if (cell.isCloze) {
             const hasFormat = !!(this.state.clozeFormat?.answers.length || this.state.clozeFormat?.mirrorData.length);
+            const fmt = this.state.clozeFormat;
 
-            // ── Namespace (shortcut when Cloze Format is set) ──────────────
-            new Setting(this.inspectorEl)
-                .setName('Namespace')
-                .setDesc(hasFormat ? 'Pick a dict namespace — auto-fills answers & mirror from Cloze Format' : 'Set Cloze Format above to use namespace shortcuts')
+            // ── Namespace row (raw input — no Setting wrapper to avoid onChange interference) ──
+            const nsRow = this.inspectorEl.createDiv({ attr: { style: 'display:flex; align-items:baseline; gap:8px; margin-bottom:8px;' } });
+            nsRow.createEl('label', { text: 'Namespace', attr: { style: 'font-size:0.85em; font-weight:600; min-width:80px; flex-shrink:0;' } });
+            const nsWrap = nsRow.createDiv({ attr: { style: 'flex:1; display:flex; flex-direction:column; gap:2px;' } });
+            nsWrap.createEl('small', {
+                text: hasFormat ? 'Pick a dict namespace — auto-fills from Cloze Format' : 'Set Cloze Format (button above) to use namespace shortcuts',
+                attr: { style: 'color:var(--text-muted); font-size:0.78em;' }
+            });
+
+            // Datalist for autocomplete
+            const listId = 'gi-ns-datalist';
+            let dl = this.contentEl.querySelector(`#${listId}`) as HTMLDataListElement | null;
+            if (!dl) { dl = document.createElement('datalist'); dl.id = listId; this.contentEl.appendChild(dl); }
+            dl.innerHTML = '';
+            this.dictNamespaces.forEach(ns => { const o = document.createElement('option'); o.value = ns; dl!.appendChild(o); });
+
+            const nsInput = nsWrap.createEl('input', { type: 'text' });
+            nsInput.value = cell.clozeNamespace;
+            nsInput.placeholder = hasFormat ? 'e.g. H, Fe, Au' : '(set Cloze Format first)';
+            nsInput.disabled = !hasFormat;
+            nsInput.setAttribute('list', listId);
+            nsInput.style.width = '100%';
+
+            // ── Format preview div — always present, shown/hidden based on namespace ──
+            const previewEl = this.inspectorEl.createDiv({
+                cls: 'gi-ns-preview',
+                attr: { style: 'font-size:0.82em; padding:4px 8px 8px; line-height:1.8; border-left:2px solid var(--interactive-accent); margin-bottom:8px; display:none;' }
+            });
+
+            // ── Manual mode — always rendered, hidden when namespace+format active ──
+            const manualEl = this.inspectorEl.createDiv();
+            new Setting(manualEl)
+                .setName('Answers')
+                .setDesc('Comma-separated (e.g. Hydrogen, H)')
                 .addText(t => {
-                    t.setValue(cell.clozeNamespace);
-                    t.inputEl.placeholder = hasFormat ? 'e.g. H, Fe, Au' : '(set Cloze Format first)';
-                    t.inputEl.disabled = !hasFormat;
-
-                    // Autocomplete datalist from loaded namespaces
-                    const listId = 'gi-ns-datalist';
-                    let dl = this.contentEl.querySelector(`#${listId}`) as HTMLDataListElement | null;
-                    if (!dl) {
-                        dl = document.createElement('datalist');
-                        dl.id = listId;
-                        this.contentEl.appendChild(dl);
-                    }
-                    dl.innerHTML = '';
-                    this.dictNamespaces.forEach(ns => {
-                        const opt = document.createElement('option');
-                        opt.value = ns;
-                        dl!.appendChild(opt);
-                    });
-                    t.inputEl.setAttribute('list', listId);
-
-                    const wasFormatMode = !!(cell.clozeNamespace && hasFormat);
-                    t.inputEl.oninput = (e) => {
-                        const v = (e.target as HTMLInputElement).value;
-                        const prevNs = cell.clozeNamespace;
-                        cell.clozeNamespace = v.trim();
-                        const ns2 = cell.clozeNamespace;
-                        const fmt2 = this.state.clozeFormat;
-
-                        if (ns2 && fmt2) {
-                            if (fmt2.value) {
-                                cell.value = `{{ ${ns2}.${fmt2.value} }}`;
-                                this.updateCellEl(idx);
-                                this.updateFocusPreview();
-                            }
-                            if (fmt2.notes) {
-                                cell.clozeNotes = `{{ ${ns2}.${fmt2.notes} }}`;
-                            }
-                            // Update preview in-place if it already exists
-                            const previewEl = this.inspectorEl?.querySelector('.gi-ns-preview') as HTMLElement | null;
-                            if (previewEl) {
-                                previewEl.empty();
-                                if (fmt2.value) {
-                                    const val = this.dict[`${ns2}.${fmt2.value}`] ?? `{{${ns2}.${fmt2.value}}}`;
-                                    previewEl.createEl('div', { text: `Value: ${val}`, attr: { style: 'color:var(--text-normal); font-weight:600;' } });
-                                }
-                                if (fmt2.answers.length) {
-                                    const vals = fmt2.answers.map(k => this.dict[`${ns2}.${k}`] ?? `{{${ns2}.${k}}}`).join(', ');
-                                    previewEl.createEl('div', { text: `Answers: ${vals}`, attr: { style: 'color:var(--text-normal);' } });
-                                }
-                                if (fmt2.mirrorData.length) {
-                                    const vals = fmt2.mirrorData.map(k => this.dict[`${ns2}.${k}`] ?? `{{${ns2}.${k}}}`).join(', ');
-                                    previewEl.createEl('div', { text: `Mirror: ${vals}`, attr: { style: 'color:var(--text-muted);' } });
-                                }
-                                if (fmt2.notes) {
-                                    const val = this.dict[`${ns2}.${fmt2.notes}`] ?? `{{${ns2}.${fmt2.notes}}}`;
-                                    previewEl.createEl('div', { text: `Notes: ${val}`, attr: { style: 'color:var(--text-muted);' } });
-                                }
-                            }
-                        }
-
-                        // Only full re-render when crossing the mode boundary (empty ↔ non-empty)
-                        const isFormatMode = !!(ns2 && hasFormat);
-                        const prevFormatMode = !!(prevNs && hasFormat);
-                        if (isFormatMode !== prevFormatMode || (!prevNs && !ns2)) {
-                            this.renderInspector();
-                        }
-                    };
+                    t.setValue(cell.clozeAnswers);
+                    t.onChange(v => { cell.clozeAnswers = v; });
                 });
+            this.mirrorSlotContainerEl = manualEl.createDiv();
+            this.renderMirrorSlots(cell);
 
-            if (cell.clozeNamespace && hasFormat) {
-                // Format mode — show resolved preview, no manual inputs needed
-                const fmt = this.state.clozeFormat!;
-                const ns = cell.clozeNamespace;
-                const previewEl = this.inspectorEl.createDiv({
-                    cls: 'gi-ns-preview',
-                    attr: { style: 'font-size:0.82em; padding:4px 8px 10px; line-height:1.8; border-left:2px solid var(--interactive-accent); margin-bottom:8px;' }
-                });
+            const updateNsUI = (ns: string) => {
+                const active = !!(ns && hasFormat && fmt);
+                previewEl.style.display = active ? '' : 'none';
+                manualEl.style.display = active ? 'none' : '';
+                if (!active || !fmt) return;
+
+                previewEl.empty();
                 if (fmt.value) {
                     const val = this.dict[`${ns}.${fmt.value}`] ?? `{{${ns}.${fmt.value}}}`;
                     previewEl.createEl('div', { text: `Value: ${val}`, attr: { style: 'color:var(--text-normal); font-weight:600;' } });
@@ -893,20 +860,20 @@ export class GridPainterModal extends Modal {
                     const val = this.dict[`${ns}.${fmt.notes}`] ?? `{{${ns}.${fmt.notes}}}`;
                     previewEl.createEl('div', { text: `Notes: ${val}`, attr: { style: 'color:var(--text-muted);' } });
                 }
-            } else {
-                // Manual mode — existing answers and mirror slot inputs
-                new Setting(this.inspectorEl)
-                    .setName('Answers')
-                    .setDesc('Comma-separated (e.g. Hydrogen, H)')
-                    .addText(t => {
-                        t.setValue(cell.clozeAnswers);
-                        t.onChange(v => { cell.clozeAnswers = v; });
-                    });
+            };
 
-                // ── Mirror data — one field per named slot ──────────────────
-                this.mirrorSlotContainerEl = this.inspectorEl.createDiv();
-                this.renderMirrorSlots(cell);
-            }
+            // Initial state
+            updateNsUI(cell.clozeNamespace);
+
+            nsInput.oninput = () => {
+                cell.clozeNamespace = nsInput.value.trim();
+                const ns = cell.clozeNamespace;
+                if (ns && fmt) {
+                    if (fmt.value) { cell.value = `{{ ${ns}.${fmt.value} }}`; this.updateCellEl(idx); this.updateFocusPreview(); }
+                    if (fmt.notes) { cell.clozeNotes = `{{ ${ns}.${fmt.notes} }}`; }
+                }
+                updateNsUI(ns);
+            };
 
             new Setting(this.inspectorEl)
                 .setName('Notes')
