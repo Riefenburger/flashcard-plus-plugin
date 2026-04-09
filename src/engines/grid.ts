@@ -387,11 +387,17 @@ export class GridEngine {
                     targetCellEl = cell;
                 } else if (isMirror) {
                     cell.addClass('gi-grid-review-cell--mirror');
-                    // Use the incorrect-specific mirror data (may have more entries than question mode)
+                    // Use the incorrect-specific mirror data (may have more entries than question mode).
+                    // Class names come from incorrectMirrorData key names (e.g. ["number","symbol","mass"])
+                    // so the CSS rules in incorrectMirrorCss match up correctly.
+                    // mirrorVars only covers the question-mode set and may be shorter.
+                    const incorrectKeyNames: string[] = (useFormat && Array.isArray(fmt.incorrectMirrorData))
+                        ? fmt.incorrectMirrorData
+                        : mirrorVars;
                     if (incorrectMirrorArr.length > 0) {
                         incorrectMirrorArr.forEach((v, i) => {
                             if (!v) return;
-                            const name = mirrorVars[i] ?? String(i);
+                            const name = incorrectKeyNames[i] ?? mirrorVars[i] ?? String(i);
                             const line = cell.createDiv({
                                 cls: `gi-mirror-line gi-mirror-var gi-mirror-var--${name}`
                             });
