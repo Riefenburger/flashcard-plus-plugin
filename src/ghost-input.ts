@@ -5,16 +5,6 @@ export interface AnswerInputHandle {
     focus: () => void;
 }
 
-/**
- * Answer input for map / constellation cards.
- *
- * Desktop  — inline bar appended inside `container`.
- *
- * Mobile   — position:fixed overlay appended to document.body.
- *            Stays anchored above the keyboard on both Android and iOS.
- *            Contains a real <input> (font-size:16px to prevent auto-zoom)
- *            and a submit button.  The card layout is completely unaffected.
- */
 export function createAnswerInput(
     container: HTMLElement,
     promptText: string,
@@ -22,7 +12,7 @@ export function createAnswerInput(
 ): AnswerInputHandle {
 
     if (!Platform.isMobile) {
-        // ── Desktop: plain inline bar ─────────────────────────────────────────
+        // ── Desktop ───────────────────────────────────────────────────────────
         const wrap = container.createDiv({ cls: 'gi-map-input-wrap' });
         wrap.createEl('span', { text: promptText, cls: 'gi-map-input-label' });
         const input = wrap.createEl('input', {
@@ -40,27 +30,36 @@ export function createAnswerInput(
         };
     }
 
-    // ── Mobile: fixed overlay with a real input ───────────────────────────────
+    // ── Mobile ────────────────────────────────────────────────────────────────
     //
-    // The overlay is position:fixed so it sits in the visual viewport above
-    // the soft keyboard on both Android and iOS — the card behind it is never
-    // scrolled, resized, or obscured.
+    // Problem: Leaflet / canvas receive touch events and steal focus away from
+    // the input, causing the keyboard to flash open then close.
     //
-    // We use a real <input> (not a fake mirror) so tapping it directly opens
-    // the keyboard without any programmatic focus() tricks.
-    // font-size:16px prevents the OS from auto-zooming the page on focus.
+    // Fix: a full-screen transparent SHIELD (z-index 9998) sits between the
+    // card content and the overlay.  Every touch on the map/canvas hits the
+    // shield first; the shield swallows it (preventDefault + stopPropagation)
+    // so nothing underneath can steal focus.
+    //
+    // The overlay (z-index 9999) and its real <input> sit above the shield.
+    // The user taps the input directly → keyboard opens and STAYS open.
 
+    // Shield — covers the whole screen below the overlay
+    const shield = document.body.createDiv({ cls: 'gi-focus-shield' });
+    const swallow = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
+    shield.addEventListener('touchstart', swallow, { passive: false });
+    shield.addEventListener('touchmove',  swallow, { passive: false });
+    shield.addEventListener('touchend',   swallow, { passive: false });
+    shield.addEventListener('mousedown',  swallow);
+    shield.addEventListener('click',      swallow);
+
+    // Overlay — fixed bar above the keyboard
     const overlay = document.body.createDiv({ cls: 'gi-answer-overlay' });
 
-    const promptEl = overlay.createEl('span', {
-        text: promptText,
-        cls: 'gi-answer-overlay-prompt'
-    });
-    promptEl.title = promptText; // full text on long-press
+    overlay.createEl('span', { text: promptText, cls: 'gi-answer-overlay-prompt' });
 
     const input = overlay.createEl('input', {
         type: 'text',
-        placeholder: '👆 Tap here to type…',
+        placeholder: 'Tap to type…',
         cls: 'gi-answer-overlay-input',
         attr: {
             autocomplete:   'off',
@@ -76,15 +75,18 @@ export function createAnswerInput(
         cls: 'gi-map-submit-btn mod-cta'
     });
 
-    const doSubmit = () => onSubmit(input.value);
+    // Stop overlay touches from hitting the shield/card too
+    overlay.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener('touchend',   (e) => e.stopPropagation(), { passive: true });
+
+    const cleanup = () => { shield.remove(); overlay.remove(); };
+    const doSubmit = () => { cleanup(); onSubmit(input.value); };
+
     submitBtn.onclick = doSubmit;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSubmit(); });
 
     return {
-        remove: () => overlay.remove(),
-        // Don't programmatically focus — Android WebView blocks it outside a
-        // user gesture. The overlay input is a direct tap target; the user
-        // taps it and the keyboard opens reliably every time.
-        focus: () => { /* intentionally empty */ },
+        remove: cleanup,
+        focus: () => { /* user taps input directly — no programmatic focus needed */ },
     };
 }

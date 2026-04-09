@@ -1370,6 +1370,18 @@ button.mod-ghost:hover {
     transform: translate(-50%, -50%);
 }
 
+/* ── Focus shield (mobile) ───────────────────────────────────────────────
+   Transparent full-screen layer that swallows all touches while the answer
+   overlay is open, preventing Leaflet / canvas from stealing focus.       */
+
+.gi-focus-shield {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: transparent;
+    touch-action: none;
+}
+
 /* ── Mobile answer overlay ───────────────────────────────────────────────
    position:fixed keeps it in the visual viewport above the soft keyboard.
    The card behind is never scrolled, resized, or obscured.             */
@@ -1401,8 +1413,7 @@ button.mod-ghost:hover {
     white-space: nowrap;
 }
 
-/* Real input inside the overlay — font-size:16px prevents OS auto-zoom.
-   Pulsing border makes it obvious this is a tap target on mobile.        */
+/* Real input inside the overlay — font-size:16px prevents OS auto-zoom */
 .gi-answer-overlay-input {
     flex: 1;
     min-width: 0;
@@ -1413,18 +1424,10 @@ button.mod-ghost:hover {
     background: var(--background-secondary);
     color: var(--text-normal);
     outline: none;
-    animation: gi-input-pulse 1.8s ease-in-out infinite;
 }
 
 .gi-answer-overlay-input:focus {
-    animation: none;
-    border-color: var(--interactive-accent);
     box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb, 99,102,241), 0.25);
-}
-
-@keyframes gi-input-pulse {
-    0%, 100% { box-shadow: 0 0 0 0px rgba(var(--interactive-accent-rgb, 99,102,241), 0.4); }
-    50%       { box-shadow: 0 0 0 5px rgba(var(--interactive-accent-rgb, 99,102,241), 0); }
 }
 
 /* ── Incorrect extra info chips ──────────────────────────────────────── */
