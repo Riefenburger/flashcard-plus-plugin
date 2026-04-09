@@ -3,7 +3,6 @@ import * as L from 'leaflet';
 import worldGeoJSON from '../data/world-110m.json';
 import { BaseEngine } from './base-engine';
 import { renderMathInContainer } from '../utils/render-math';
-import { createAnswerInput } from '../ghost-input';
 
 export class MapEngine {
     static async renderInModal(
@@ -39,7 +38,7 @@ export class MapEngine {
         });
 
         // Store cleanup on container so session-modal can call it
-        (container as any)._leafletCleanup = () => { answerInput.remove(); map.remove(); };
+        (container as any)._leafletCleanup = () => { map.remove(); };
 
         const isHistorical = cloze.era && cloze.era !== 'present';
 
@@ -70,13 +69,21 @@ export class MapEngine {
         requestAnimationFrame(() => map.invalidateSize());
 
         // ── Input ─────────────────────────────────────────────────────────────
-        const answerInput = createAnswerInput(container, cloze.front || 'Answer:', (rawAnswer) => {
-            answerInput.remove();
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type answer…',
+            cls: 'gi-map-answer-input',
+            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
+        });
+        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
+        const handleSubmit = (rawAnswer: string) => {
+            inputWrap.remove();
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
-
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
             } else {
@@ -92,8 +99,9 @@ export class MapEngine {
                     [], dict, cardData
                 );
             }
-        });
-        answerInput.focus();
+        };
+        submitBtn.onclick = () => handleSubmit(inputEl.value);
+        inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSubmit(inputEl.value); });
     }
 
     static async loadGeoJSON(app: App, era: string): Promise<any> {

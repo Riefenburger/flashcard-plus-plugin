@@ -2,7 +2,6 @@ import { App, setIcon } from 'obsidian';
 import boundsGeoJSON from '../data/constellations.bounds.json';
 import linesGeoJSON from '../data/constellations.lines.json';
 import { BaseEngine } from './base-engine';
-import { createAnswerInput } from '../ghost-input';
 
 // stars.6.json has dots in its name so we use require
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -462,37 +461,43 @@ export class ConstellationEngine {
         );
 
         // ── Input ─────────────────────────────────────────────────────────────
-        const answerInput = createAnswerInput(container, cloze.front || 'Name this constellation:', (rawAnswer) => {
-            answerInput.remove();
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type constellation name…',
+            cls: 'gi-map-answer-input',
+            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
+        });
+        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
+        const handleSubmit = (rawAnswer: string) => {
+            inputWrap.remove();
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
-
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
             } else {
                 revealed = true;
                 revealName = Array.isArray(cloze.back) ? (cloze.back[0] ?? '') : (cloze.featureName ?? featureId);
                 draw();
-
                 const compareCard = container.createDiv({ cls: 'gi-incorrect-card' });
                 const hdr = compareCard.createDiv({ cls: 'gi-incorrect-hdr' });
                 const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
                 setIcon(iconEl, 'x-circle');
                 hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
-
                 BaseEngine.renderIncorrectContent(
                     app, filePath, compareCard, cloze, rawAnswer.trim(),
                     (wasCorrect) => onComplete(wasCorrect, rawAnswer.trim()),
                     [], dict, cardData
                 );
             }
-        });
-        answerInput.focus();
+        };
+        submitBtn.onclick = () => handleSubmit(inputEl.value);
+        inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleSubmit(inputEl.value); });
 
         (container as any)._leafletCleanup = () => {
-            answerInput.remove();
             ro.disconnect();
             cleanupDrag();
         };

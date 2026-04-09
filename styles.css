@@ -1370,65 +1370,6 @@ button.mod-ghost:hover {
     transform: translate(-50%, -50%);
 }
 
-/* ── Focus shield (mobile) ───────────────────────────────────────────────
-   Transparent full-screen layer that swallows all touches while the answer
-   overlay is open, preventing Leaflet / canvas from stealing focus.       */
-
-.gi-focus-shield {
-    position: fixed;
-    inset: 0;
-    z-index: 9998;
-    background: transparent;
-    touch-action: none;
-}
-
-/* ── Mobile answer overlay ───────────────────────────────────────────────
-   position:fixed keeps it in the visual viewport above the soft keyboard.
-   The card behind is never scrolled, resized, or obscured.             */
-
-.gi-answer-overlay {
-    position: fixed;
-    bottom: max(12px, env(safe-area-inset-bottom));
-    left: 12px;
-    right: 12px;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: var(--background-primary);
-    border: 1.5px solid var(--interactive-accent);
-    border-radius: 14px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-    box-sizing: border-box;
-}
-
-.gi-answer-overlay-prompt {
-    font-size: 0.8em;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    max-width: 30%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Real input inside the overlay — font-size:16px prevents OS auto-zoom */
-.gi-answer-overlay-input {
-    flex: 1;
-    min-width: 0;
-    font-size: 16px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 2px solid var(--interactive-accent);
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    outline: none;
-}
-
-.gi-answer-overlay-input:focus {
-    box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb, 99,102,241), 0.25);
-}
 
 /* ── Incorrect extra info chips ──────────────────────────────────────── */
 
