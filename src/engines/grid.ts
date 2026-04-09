@@ -341,6 +341,20 @@ export class GridEngine {
                 cell.style.gridColumn = `span ${colSpan}`;
                 cell.style.gridRow = `span ${rowSpan}`;
 
+                // Helper: scope a CSS rule-block string to a specific mirror cell
+                const applyScopedRules = (cssRules: string, scopeId: string, targetEl: HTMLElement) => {
+                    targetEl.dataset.giMirrorId = scopeId;
+                    const scoped = cssRules.replace(/(^|\})\s*([^{}]+)\s*\{/g, (_, prev, sel) => {
+                        const scopedSel = sel.trim().split(',')
+                            .map((s: string) => `[data-gi-mirror-id="${scopeId}"] ${s.trim()}`)
+                            .join(', ');
+                        return `${prev}${scopedSel}{`;
+                    });
+                    const styleEl = document.createElement('style');
+                    styleEl.textContent = scoped;
+                    targetEl.appendChild(styleEl);
+                };
+
                 if (catCssRaw) {
                     const { flat, rules } = splitFlatAndRules(catCssRaw);
                     if (flat) {
@@ -349,21 +363,20 @@ export class GridEngine {
                             const auto = contrastColor(flat);
                             if (auto) applied += `; color: ${auto}`;
                         }
-                        cell.setAttribute('style', cell.getAttribute('style') + '; ' + applied);
+                        cell.setAttribute('style', (cell.getAttribute('style') || '') + '; ' + applied);
                     }
-                    if (rules && isMirror) {
-                        const scopeId = `gi-m-${rIdx}-${aIdx}`;
-                        cell.dataset.giMirrorId = scopeId;
-                        const scoped = rules.replace(/(^|\})\s*([^{}]+)\s*\{/g, (_, prev, sel) => {
-                            const scopedSel = sel.trim().split(',')
-                                .map((s: string) => `[data-gi-mirror-id="${scopeId}"] ${s.trim()}`)
-                                .join(', ');
-                            return `${prev}${scopedSel}{`;
-                        });
-                        const styleEl = document.createElement('style');
-                        styleEl.textContent = scoped;
-                        cell.appendChild(styleEl);
+                    if (isMirror) {
+                        // If incorrectMirrorCss is set, use it instead of the category's rules
+                        const rulesToApply = (useFormat && fmt.incorrectMirrorCss)
+                            ? fmt.incorrectMirrorCss
+                            : rules;
+                        if (rulesToApply) {
+                            applyScopedRules(rulesToApply, `gi-m-${rIdx}-${aIdx}`, cell);
+                        }
                     }
+                } else if (isMirror && useFormat && fmt.incorrectMirrorCss) {
+                    // No category CSS but we have incorrect mirror CSS
+                    applyScopedRules(fmt.incorrectMirrorCss, `gi-m-${rIdx}-${aIdx}`, cell);
                 }
 
                 if (isEmpty) {
@@ -374,11 +387,7 @@ export class GridEngine {
                     targetCellEl = cell;
                 } else if (isMirror) {
                     cell.addClass('gi-grid-review-cell--mirror');
-                    // Use the incorrect-specific mirror vars (may have more data than question mode)
-                    const mirrorVarsForIncorrect = mirrorVars.length > 0 ? mirrorVars : incorrectMirrorArr.map((_, i) => String(i));
-                    mirrorVarsForIncorrect.forEach((name, i) => {
-                        cell.style.setProperty(`--gi-${name}`, incorrectMirrorArr[i] ?? '');
-                    });
+                    // Use the incorrect-specific mirror data (may have more entries than question mode)
                     if (incorrectMirrorArr.length > 0) {
                         incorrectMirrorArr.forEach((v, i) => {
                             if (!v) return;

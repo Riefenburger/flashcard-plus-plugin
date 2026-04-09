@@ -31,6 +31,7 @@ interface ClozeFormat {
     incorrectExtra: string[];       // dict key names shown as extra info chips on incorrect screen
     incorrectCellValue?: string;    // key for what to show IN the target cell on incorrect screen (e.g. "symbol")
     incorrectMirrorData?: string[]; // keys for the mirror cell on incorrect screen (e.g. ["number", "symbol", "mass"])
+    incorrectMirrorCss?: string;    // CSS rules for the mirror cell on incorrect screen (overrides category rules only)
 }
 
 interface PainterState {
@@ -1165,6 +1166,7 @@ export class GridPainterModal extends Modal {
                 incorrectExtra: Array.isArray(cardData.clozeFormat.incorrectExtra) ? cardData.clozeFormat.incorrectExtra : [],
                 incorrectCellValue: cardData.clozeFormat.incorrectCellValue || undefined,
                 incorrectMirrorData: Array.isArray(cardData.clozeFormat.incorrectMirrorData) ? cardData.clozeFormat.incorrectMirrorData : [],
+                incorrectMirrorCss: cardData.clozeFormat.incorrectMirrorCss || undefined,
             };
         }
 
@@ -1446,7 +1448,7 @@ class ClozeFormatModal extends Modal {
         super(app);
         this.fmt = current
             ? { ...current, incorrectExtra: current.incorrectExtra ?? [], incorrectMirrorData: current.incorrectMirrorData ?? [] }
-            : { value: '', answers: [], mirrorData: [], notes: '', incorrectExtra: [], incorrectCellValue: '', incorrectMirrorData: [] };
+            : { value: '', answers: [], mirrorData: [], notes: '', incorrectExtra: [], incorrectCellValue: '', incorrectMirrorData: [], incorrectMirrorCss: '' };
         this.onSave = onSave;
     }
 
@@ -1533,6 +1535,22 @@ class ClozeFormatModal extends Modal {
                 t.onChange(v => {
                     this.fmt.incorrectMirrorData = v.split(',').map(s => s.trim()).filter(Boolean);
                 });
+            });
+
+        new Setting(contentEl)
+            .setName('Incorrect mirror CSS')
+            .setDesc('CSS selector rules for the mirror cell on the incorrect screen — overrides the category\'s rules. Same format as category CSS (just the rule blocks, no background/border needed here).')
+            .addTextArea(t => {
+                t.setValue(this.fmt.incorrectMirrorCss ?? '');
+                t.inputEl.rows = 6;
+                t.inputEl.style.width = '100%';
+                t.inputEl.style.fontFamily = 'monospace';
+                t.inputEl.style.fontSize = '0.85em';
+                t.inputEl.placeholder =
+                    '.gi-mirror-var--number { align-self: flex-start; font-size: 1.5em; }\n' +
+                    '.gi-mirror-var--symbol { align-self: flex-start; font-size: 4em; }\n' +
+                    '.gi-mirror-var--mass   { font-size: 1em; }';
+                t.onChange(v => { this.fmt.incorrectMirrorCss = v.trim() || undefined; });
             });
 
         const footer = contentEl.createDiv({ attr: { style: 'margin-top:20px; display:flex; gap:8px; justify-content:flex-end;' } });

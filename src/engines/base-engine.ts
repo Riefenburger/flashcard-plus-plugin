@@ -1,6 +1,10 @@
 import { App, Notice, TFile, setIcon } from 'obsidian';
 import { renderMathInContainer } from '../utils/render-math';
 
+function resolve(str: string, dict: Record<string, string>): string {
+    return str.replace(/\{\{([^}]+)\}\}/g, (_, key) => dict[key.trim()] ?? `{{${key}}}`);
+}
+
 export class BaseEngine {
     /**
      * Full incorrect screen — empties container, shows header, then content.
@@ -58,7 +62,9 @@ export class BaseEngine {
         const displayAnswer = resolvedAnswers.join(' / ') || '(unknown)';
 
         // ── Resolve notes from namespace ─────────────────────────────────────
-        let resolvedNotes = cloze.notes || '';
+        // cloze.notes may contain {{Ns.key}} template references — resolve them
+        let resolvedNotes = resolve(cloze.notes || '', dict);
+        // If still empty and clozeFormat has a notes key, look it up directly
         if (!resolvedNotes && useFormat && fmt.notes) {
             resolvedNotes = dict[`${ns}.${fmt.notes}`] ?? '';
         }
