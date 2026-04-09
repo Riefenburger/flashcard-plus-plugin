@@ -1090,6 +1090,113 @@ button.mod-ghost:hover {
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 
+/* ── Map inline answer input ─────────────────────────────────────────── */
+
+.gi-map-answer-input {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    margin-top: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    box-sizing: border-box;
+}
+
+/* ── Map reveal label (shown on incorrect) ───────────────────────────── */
+
+.gi-map-reveal-label {
+    background: none;
+    border: none;
+    pointer-events: none;
+}
+
+.gi-map-reveal-label span {
+    display: inline-block;
+    background: rgba(22, 163, 74, 0.9);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85em;
+    padding: 3px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    transform: translate(-50%, -50%);
+}
+
+/* ── Floating input overlay (mobile — sits above keyboard) ───────────── */
+
+.gi-floating-input-overlay {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--background-primary);
+    border-top: 1px solid var(--background-modifier-border);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+    box-sizing: border-box;
+}
+
+.gi-floating-input-prompt {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gi-floating-input {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--interactive-accent);
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
+
+/* ── Incorrect extra info chips ──────────────────────────────────────── */
+
+.gi-incorrect-extra {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0 4px;
+}
+
+.gi-incorrect-extra-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-width: 52px;
+    text-align: center;
+}
+
+.gi-incorrect-extra-chip small {
+    font-size: 0.65em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.gi-incorrect-extra-chip strong {
+    font-size: 1em;
+    color: var(--text-normal);
+}
+
 /* ── Add era form (reuses gi-add-category-form styles) ──────────────── */
 
 .gi-add-era-form {
@@ -1422,6 +1529,16 @@ button.mod-ghost:hover {
     color: var(--text-on-accent);
     font-weight: 700;
     font-size: 0.9em;
+}
+
+/* Revealed target cell on incorrect screen — green with answer */
+.gi-grid-review-cell--revealed {
+    background: rgba(34, 197, 94, 0.25);
+    border: 2px solid var(--color-green, #22c55e);
+    color: var(--color-green, #22c55e);
+    font-weight: 700;
+    font-size: 0.9em;
+    opacity: 1 !important;
 }
 
 /* Mirror cell — shows the active cloze's info lines */

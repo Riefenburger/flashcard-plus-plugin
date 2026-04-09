@@ -1,5 +1,6 @@
-import { App } from 'obsidian';
+import { App, setIcon } from 'obsidian';
 import { renderMathInContainer } from '../utils/render-math';
+import { BaseEngine } from './base-engine';
 
 /** Splits a CSS string into flat property declarations and selector rule blocks. */
 function splitFlatAndRules(css: string): { flat: string; rules: string } {
@@ -237,5 +238,170 @@ export class GridEngine {
         input.onkeydown = (e) => {
             if (e.key === 'Enter' && !input.disabled) submit(input.value);
         };
+    }
+
+    static renderIncorrectScreen(
+        app: App,
+        filePath: string,
+        container: HTMLElement,
+        cardData: any,
+        cloze: any,
+        userAnswer: string,
+        onComplete: (wasCorrect: boolean) => void,
+        dict: Record<string, string> = {},
+        allCards: any[] = []
+    ) {
+        container.empty();
+
+        const cols: number = cardData.columns || 18;
+        const categories: Record<string, string> = cardData.categories || {};
+        const targetRow: number = cloze.coords?.[0] ?? -1;
+        const targetAIdx: number = cloze.coords?.[1] ?? -1;
+        const mirrorVars: string[] = Array.isArray(cardData.mirrorVars) ? cardData.mirrorVars : [];
+
+        const mirrorSet = new Set<string>();
+        (cardData.mirrors || []).forEach((m: any) => {
+            if (Array.isArray(m.coords)) mirrorSet.add(`${m.coords[0]}-${m.coords[1]}`);
+        });
+
+        const fmt = cardData.clozeFormat;
+        const ns: string | undefined = cloze.clozeNamespace || cloze.namespace;
+        const useFormat = !!(ns && fmt);
+
+        const mirrorDataArr: string[] = useFormat
+            ? resolveFromFormat(Array.isArray(fmt.mirrorData) ? fmt.mirrorData : [], ns!, dict)
+            : (Array.isArray(cloze.mirrorData) ? cloze.mirrorData : []).map((v: string) => resolve(v, dict));
+
+        const answersArr: string[] = useFormat
+            ? resolveFromFormat(Array.isArray(fmt.answers) ? fmt.answers : [], ns!, dict)
+            : (cloze.answers || []).map((a: string) => resolve(a, dict));
+
+        const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
+
+        const card = container.createDiv({ cls: 'gi-incorrect-card' });
+
+        // ── Header ────────────────────────────────────────────────────────────
+        const hdr = card.createDiv({ cls: 'gi-incorrect-hdr' });
+        const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
+        setIcon(iconEl, 'x-circle');
+        hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
+
+        // ── Grid with answer revealed ─────────────────────────────────────────
+        card.createEl('h3', {
+            text: cardData.title || 'Fill the Grid',
+            attr: { style: 'margin-bottom:8px; font-size:1em;' }
+        });
+
+        const gridWrap = card.createDiv({ cls: 'gi-grid-review-grid-wrap' });
+        const gridEl = gridWrap.createDiv({ cls: 'gi-grid-review' });
+        gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+
+        const covered = new Set<number>();
+        const indexAt = (r: number, c: number) => r * cols + c;
+        let targetCellEl: HTMLElement | null = null;
+
+        rows.forEach((row: any[], rIdx: number) => {
+            if (!Array.isArray(row)) return;
+            let cIdx = 0;
+            let aIdx = 0;
+
+            row.forEach((cellStr: any) => {
+                while (cIdx < cols && covered.has(indexAt(rIdx, cIdx))) cIdx++;
+                if (cIdx >= cols) return;
+
+                const parts = String(cellStr).split(':');
+                const val = resolve(parts[0] ?? '', dict);
+                const cat = parts[1] || null;
+                const colSpan = Math.max(1, parseInt(parts[2] ?? '1') || 1);
+                const rowSpan = Math.max(1, parseInt(parts[3] ?? '1') || 1);
+                const catCssRaw = (cat && categories[cat]) ? categories[cat] : '';
+                const isEmpty = val === '';
+                const isTarget = (rIdx === targetRow && aIdx === targetAIdx);
+                const isMirror = mirrorSet.has(`${rIdx}-${aIdx}`);
+
+                for (let dr = 0; dr < rowSpan; dr++) {
+                    for (let dc = 0; dc < colSpan; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        covered.add(indexAt(rIdx + dr, cIdx + dc));
+                    }
+                }
+
+                const cell = gridEl.createDiv({ cls: 'gi-grid-review-cell' });
+                cell.style.gridColumn = `span ${colSpan}`;
+                cell.style.gridRow = `span ${rowSpan}`;
+
+                if (catCssRaw) {
+                    const { flat, rules } = splitFlatAndRules(catCssRaw);
+                    if (flat) {
+                        let applied = flat;
+                        if (!/\bcolor\s*:/.test(flat)) {
+                            const auto = contrastColor(flat);
+                            if (auto) applied += `; color: ${auto}`;
+                        }
+                        cell.setAttribute('style', cell.getAttribute('style') + '; ' + applied);
+                    }
+                    if (rules && isMirror) {
+                        const scopeId = `gi-m-${rIdx}-${aIdx}`;
+                        cell.dataset.giMirrorId = scopeId;
+                        const scoped = rules.replace(/(^|\})\s*([^{}]+)\s*\{/g, (_, prev, sel) => {
+                            const scopedSel = sel.trim().split(',')
+                                .map((s: string) => `[data-gi-mirror-id="${scopeId}"] ${s.trim()}`)
+                                .join(', ');
+                            return `${prev}${scopedSel}{`;
+                        });
+                        const styleEl = document.createElement('style');
+                        styleEl.textContent = scoped;
+                        cell.appendChild(styleEl);
+                    }
+                }
+
+                if (isEmpty) {
+                    cell.addClass('gi-grid-review-cell--empty');
+                } else if (isTarget) {
+                    cell.addClass('gi-grid-review-cell--revealed');
+                    cell.setText(answersArr[0] ?? val);
+                    targetCellEl = cell;
+                } else if (isMirror) {
+                    cell.addClass('gi-grid-review-cell--mirror');
+                    mirrorVars.forEach((name, i) => {
+                        cell.style.setProperty(`--gi-${name}`, mirrorDataArr[i] ?? '');
+                    });
+                    if (mirrorDataArr.length > 0) {
+                        mirrorVars.forEach((name, i) => {
+                            const v = mirrorDataArr[i] ?? '';
+                            if (!v) return;
+                            const line = cell.createDiv({
+                                cls: `gi-mirror-line gi-mirror-var gi-mirror-var--${name}`
+                            });
+                            renderMathInContainer(line, v);
+                        });
+                    }
+                } else {
+                    cell.setText(val);
+                }
+
+                cIdx += colSpan;
+                aIdx++;
+            });
+        });
+
+        // Scroll to revealed cell
+        if (targetCellEl) {
+            const target = targetCellEl as HTMLElement;
+            requestAnimationFrame(() => {
+                const cellLeft = target.offsetLeft;
+                const cellWidth = target.offsetWidth;
+                const wrapWidth = gridWrap.clientWidth;
+                gridWrap.scrollLeft = cellLeft - wrapWidth / 2 + cellWidth / 2;
+            });
+        }
+
+        // ── Comparison, notes, extra info, actions ────────────────────────────
+        // Build resolved cloze so BaseEngine can display the correct answers
+        const resolvedCloze = {
+            ...cloze,
+            back: answersArr.length > 0 ? answersArr : (Array.isArray(cloze.back) ? cloze.back : (cloze.answers || [])),
+        };
+        BaseEngine.renderIncorrectContent(app, filePath, card, resolvedCloze, userAnswer, onComplete, allCards, dict, cardData);
     }
 }

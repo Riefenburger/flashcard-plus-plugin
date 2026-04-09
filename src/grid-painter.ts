@@ -24,10 +24,11 @@ interface PainterCategory {
 }
 
 interface ClozeFormat {
-    value?: string;       // single key name for cell display value (e.g. "number")
-    answers: string[];    // dict key names resolved as answers (e.g. ["name", "symbol"])
-    mirrorData: string[]; // dict key names resolved as mirror data (e.g. ["number", "mass"])
-    notes?: string;       // single key name for notes/hint (e.g. "group")
+    value?: string;           // single key name for cell display value (e.g. "number")
+    answers: string[];        // dict key names resolved as answers (e.g. ["name", "symbol"])
+    mirrorData: string[];     // dict key names resolved as mirror data (e.g. ["number", "mass"])
+    notes?: string;           // single key name for notes/hint (e.g. "group")
+    incorrectExtra: string[]; // dict key names shown as extra info on incorrect screen (e.g. ["group", "period"])
 }
 
 interface PainterState {
@@ -1159,6 +1160,7 @@ export class GridPainterModal extends Modal {
                 answers: Array.isArray(cardData.clozeFormat.answers) ? cardData.clozeFormat.answers : [],
                 mirrorData: Array.isArray(cardData.clozeFormat.mirrorData) ? cardData.clozeFormat.mirrorData : [],
                 notes: cardData.clozeFormat.notes || undefined,
+                incorrectExtra: Array.isArray(cardData.clozeFormat.incorrectExtra) ? cardData.clozeFormat.incorrectExtra : [],
             };
         }
 
@@ -1439,8 +1441,8 @@ class ClozeFormatModal extends Modal {
     constructor(app: App, current: ClozeFormat | null, onSave: (fmt: ClozeFormat) => void) {
         super(app);
         this.fmt = current
-            ? { ...current }
-            : { value: '', answers: [], mirrorData: [], notes: '' };
+            ? { ...current, incorrectExtra: current.incorrectExtra ?? [] }
+            : { value: '', answers: [], mirrorData: [], notes: '', incorrectExtra: [] };
         this.onSave = onSave;
     }
 
@@ -1485,11 +1487,22 @@ class ClozeFormatModal extends Modal {
 
         new Setting(contentEl)
             .setName('Notes key')
-            .setDesc('Shown on incorrect screen — e.g. group')
+            .setDesc('Single key shown as editable note on incorrect screen — e.g. group')
             .addText(t => {
                 t.setValue(this.fmt.notes ?? '');
                 t.inputEl.placeholder = 'e.g. group';
                 t.onChange(v => { this.fmt.notes = v.trim() || undefined; });
+            });
+
+        new Setting(contentEl)
+            .setName('Incorrect extra keys')
+            .setDesc('Comma-separated keys shown as info chips on incorrect screen — e.g. group, period, mass')
+            .addText(t => {
+                t.setValue(this.fmt.incorrectExtra.join(', '));
+                t.inputEl.placeholder = 'e.g. group, period, mass';
+                t.onChange(v => {
+                    this.fmt.incorrectExtra = v.split(',').map(s => s.trim()).filter(Boolean);
+                });
             });
 
         const footer = contentEl.createDiv({ attr: { style: 'margin-top:20px; display:flex; gap:8px; justify-content:flex-end;' } });

@@ -1,7 +1,8 @@
-import { App, TFile } from 'obsidian';
+import { App, Platform, setIcon, TFile } from 'obsidian';
 import * as L from 'leaflet';
 import worldGeoJSON from '../data/world-110m.json';
 import { BaseEngine } from './base-engine';
+import { renderMathInContainer } from '../utils/render-math';
 
 export class MapEngine {
     static async renderInModal(
@@ -10,7 +11,8 @@ export class MapEngine {
         container: HTMLElement,
         cardData: any,
         cloze: any,
-        onComplete: (isCorrect: boolean, userAnswer: string) => void
+        onComplete: (isCorrect: boolean, userAnswer: string) => void,
+        dict: Record<string, string> = {}
     ): Promise<void> {
         container.empty();
 
@@ -20,23 +22,13 @@ export class MapEngine {
             attr: { style: 'text-align:center; margin-bottom:10px;' }
         });
 
-        // Map container — explicit height before L.map()
+        // Map container — explicit height, NOT affected by keyboard
         const mapDiv = container.createDiv({ cls: 'gi-map-container' });
-
-        // Answer input (below map)
-        const input = container.createEl('input', {
-            type: 'text',
-            placeholder: 'Type your answer…'
-        });
-        input.style.width = '100%';
-        input.style.padding = '10px';
-        input.style.fontSize = '16px';
-        input.style.marginTop = '10px';
 
         // Load GeoJSON for this cloze's era
         const geoData = await MapEngine.loadGeoJSON(app, cloze.era);
 
-        // Init Leaflet — NO tile layer, NO label pane
+        // Init Leaflet
         const map = L.map(mapDiv, {
             center: [20, 10],
             zoom: 2,
@@ -45,8 +37,11 @@ export class MapEngine {
             zoomControl: true,
         });
 
-        // Store cleanup so session-modal can call it before contentEl.empty()
-        (mapDiv as any)._leafletCleanup = () => map.remove();
+        // Store cleanup on container so session-modal can call it
+        (container as any)._leafletCleanup = () => {
+            floatingOverlay?.remove();
+            map.remove();
+        };
 
         const isHistorical = cloze.era && cloze.era !== 'present';
 
@@ -75,27 +70,70 @@ export class MapEngine {
         }
 
         requestAnimationFrame(() => map.invalidateSize());
-        setTimeout(() => input.focus(), 100);
 
-        input.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                const userAnswer = input.value.trim().toLowerCase();
-                const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
-                const isCorrect = correctAnswers.includes(userAnswer);
+        // ── Input — floating overlay on mobile, inline on desktop ────────────
+        let inputEl: HTMLInputElement;
+        let floatingOverlay: HTMLElement | null = null;
 
-                if (isCorrect) {
-                    onComplete(true, userAnswer);
-                } else {
-                    BaseEngine.renderIncorrectScreen(
-                        app,
-                        filePath,
-                        container,
-                        cloze,
-                        userAnswer,
-                        (correct) => onComplete(correct, userAnswer)
-                    );
-                }
+        if (Platform.isMobile) {
+            // Fixed overlay so the keyboard can't push it offscreen or shrink the map
+            floatingOverlay = document.body.createDiv({ cls: 'gi-floating-input-overlay' });
+            floatingOverlay.createEl('span', {
+                text: cloze.front || 'Answer:',
+                cls: 'gi-floating-input-prompt'
+            });
+            inputEl = floatingOverlay.createEl('input', {
+                type: 'text',
+                placeholder: 'Type answer…',
+                cls: 'gi-floating-input'
+            });
+        } else {
+            inputEl = container.createEl('input', {
+                type: 'text',
+                placeholder: 'Type your answer…',
+                cls: 'gi-map-answer-input'
+            });
+        }
+
+        setTimeout(() => inputEl.focus(), 100);
+
+        const handleSubmit = (rawAnswer: string) => {
+            const userAnswer = rawAnswer.trim().toLowerCase();
+            const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
+            const isCorrect = correctAnswers.includes(userAnswer);
+
+            // Remove the input (inline or floating)
+            if (floatingOverlay) {
+                floatingOverlay.remove();
+                floatingOverlay = null;
+            } else {
+                inputEl.remove();
             }
+
+            if (isCorrect) {
+                onComplete(true, rawAnswer.trim());
+            } else {
+                // Reveal the correct country on the map
+                MapEngine.revealFeature(geoJsonLayer, cloze, map, isHistorical);
+
+                // Show incorrect screen BELOW the map (map stays visible)
+                const compareCard = container.createDiv({ cls: 'gi-incorrect-card' });
+
+                const hdr = compareCard.createDiv({ cls: 'gi-incorrect-hdr' });
+                const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
+                setIcon(iconEl, 'x-circle');
+                hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
+
+                BaseEngine.renderIncorrectContent(
+                    app, filePath, compareCard, cloze, rawAnswer.trim(),
+                    (wasCorrect) => onComplete(wasCorrect, rawAnswer.trim()),
+                    [], dict, cardData
+                );
+            }
+        };
+
+        inputEl.onkeydown = (e) => {
+            if (e.key === 'Enter') handleSubmit(inputEl.value);
         };
     }
 
@@ -121,7 +159,6 @@ export class MapEngine {
     ) {
         layer.eachLayer((l: any) => {
             const props = l.feature?.properties as any;
-            // For historical maps, featureId is the NAME. For present, try ADM0_A3/ISO_A3 first.
             const match = isHistorical
                 ? props?.NAME === featureId
                 : (props?.ADM0_A3 === featureId || props?.ISO_A3 === featureId || props?.NAME === featureId);
@@ -134,6 +171,48 @@ export class MapEngine {
                     weight: 2,
                 });
                 if (l.getBounds) {
+                    map.fitBounds(l.getBounds(), { padding: [40, 40], maxZoom: 6 });
+                }
+            }
+        });
+    }
+
+    /** Reveal the correct feature after a wrong answer — green highlight + name label. */
+    private static revealFeature(
+        layer: L.GeoJSON,
+        cloze: any,
+        map: L.Map,
+        isHistorical: boolean
+    ) {
+        const featureId = cloze.featureId;
+        if (!featureId) return;
+
+        layer.eachLayer((l: any) => {
+            const props = l.feature?.properties as any;
+            const match = isHistorical
+                ? props?.NAME === featureId
+                : (props?.ADM0_A3 === featureId || props?.ISO_A3 === featureId || props?.NAME === featureId);
+
+            if (match) {
+                l.setStyle({
+                    fillColor: '#22c55e',
+                    fillOpacity: 0.55,
+                    color: '#16a34a',
+                    weight: 2,
+                });
+
+                // Add country name label at centroid
+                const correctName = Array.isArray(cloze.back) ? cloze.back[0] : (props?.NAME ?? featureId);
+                if (l.getBounds) {
+                    const center = l.getBounds().getCenter();
+                    L.marker(center, {
+                        icon: L.divIcon({
+                            className: 'gi-map-reveal-label',
+                            html: `<span>${correctName}</span>`,
+                            iconAnchor: [0, 0],
+                        }),
+                        interactive: false,
+                    }).addTo(map);
                     map.fitBounds(l.getBounds(), { padding: [40, 40], maxZoom: 6 });
                 }
             }

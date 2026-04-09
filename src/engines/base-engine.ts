@@ -2,6 +2,10 @@ import { App, Notice, TFile, setIcon } from 'obsidian';
 import { renderMathInContainer } from '../utils/render-math';
 
 export class BaseEngine {
+    /**
+     * Full incorrect screen — empties container, shows header, then content.
+     * Use this for card types that don't need custom visuals (traditional, svg, etc.)
+     */
     static renderIncorrectScreen(
         app: App,
         filePath: string,
@@ -9,17 +13,55 @@ export class BaseEngine {
         cloze: any,
         userAnswer: string,
         onComplete: (wasCorrect: boolean) => void,
-        allCards: any[] = []
+        allCards: any[] = [],
+        dict: Record<string, string> = {},
+        cardData: any = null
     ) {
         container.empty();
-
         const card = container.createDiv({ cls: 'gi-incorrect-card' });
 
-        // ── Header ────────────────────────────────────────────────────────────
         const hdr = card.createDiv({ cls: 'gi-incorrect-hdr' });
         const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
         setIcon(iconEl, 'x-circle');
         hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
+
+        BaseEngine.renderIncorrectContent(app, filePath, card, cloze, userAnswer, onComplete, allCards, dict, cardData);
+    }
+
+    /**
+     * Appends the comparison, extra info, notes, linked clozes and action buttons
+     * to an existing element. Called by renderIncorrectScreen and by engine-specific
+     * incorrect screens (grid, map) that manage their own visuals above this section.
+     */
+    static renderIncorrectContent(
+        app: App,
+        filePath: string,
+        card: HTMLElement,
+        cloze: any,
+        userAnswer: string,
+        onComplete: (wasCorrect: boolean) => void,
+        allCards: any[] = [],
+        dict: Record<string, string> = {},
+        cardData: any = null
+    ) {
+        const fmt = cardData?.clozeFormat;
+        const ns: string | undefined = cloze.clozeNamespace || cloze.namespace;
+        const useFormat = !!(ns && fmt);
+
+        // ── Resolve answers from namespace ───────────────────────────────────
+        let resolvedAnswers: string[];
+        if (useFormat && Array.isArray(fmt.answers) && fmt.answers.length > 0) {
+            resolvedAnswers = (fmt.answers as string[]).map((k: string) => dict[`${ns}.${k}`] ?? k);
+        } else {
+            resolvedAnswers = Array.isArray(cloze.back) ? cloze.back : (cloze.answers || []);
+        }
+        const displayAnswer = resolvedAnswers.join(' / ') || '(unknown)';
+
+        // ── Resolve notes from namespace ─────────────────────────────────────
+        let resolvedNotes = cloze.notes || '';
+        if (!resolvedNotes && useFormat && fmt.notes) {
+            resolvedNotes = dict[`${ns}.${fmt.notes}`] ?? '';
+        }
 
         // ── Answer comparison ─────────────────────────────────────────────────
         const compare = card.createDiv({ cls: 'gi-answer-compare' });
@@ -32,11 +74,20 @@ export class BaseEngine {
 
         const correctBox = compare.createDiv({ cls: 'gi-answer-box gi-answer-box--right' });
         correctBox.createEl('small', { text: 'Correct answer' });
-        const displayAnswer = cloze.back
-            ? cloze.back.join(' / ')
-            : (cloze.answers || []).join(' / ');
         const answerEl = correctBox.createEl('p', { cls: 'gi-answer-val' });
         renderMathInContainer(answerEl, displayAnswer);
+
+        // ── Extra info keys (from clozeFormat.incorrectExtra) ─────────────────
+        if (useFormat && Array.isArray(fmt.incorrectExtra) && fmt.incorrectExtra.length > 0) {
+            const extraBox = card.createDiv({ cls: 'gi-incorrect-extra' });
+            (fmt.incorrectExtra as string[]).forEach((key: string) => {
+                const val = dict[`${ns}.${key}`];
+                if (!val) return;
+                const chip = extraBox.createDiv({ cls: 'gi-incorrect-extra-chip' });
+                chip.createEl('small', { text: key });
+                chip.createEl('strong', { text: val });
+            });
+        }
 
         // ── Notes (inline edit) ───────────────────────────────────────────────
         const notesBlock = card.createDiv({ cls: 'gi-notes-block' });
@@ -88,8 +139,8 @@ export class BaseEngine {
                 cancelBtn.onclick = () => { notesEditOpen = false; renderNotes(); };
                 editBtn.onclick = () => { notesEditOpen = false; renderNotes(); };
             } else {
-                if (cloze.notes) {
-                    notesBlock.createEl('p', { text: cloze.notes, cls: 'gi-notes-text' });
+                if (resolvedNotes) {
+                    notesBlock.createEl('p', { text: resolvedNotes, cls: 'gi-notes-text' });
                 } else {
                     notesBlock.createEl('p', { text: 'No notes — click ✏ to add.', cls: 'gi-notes-empty' });
                 }

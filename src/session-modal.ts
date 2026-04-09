@@ -284,6 +284,19 @@ export class SessionModal extends Modal {
         const cardContainer = contentEl.createDiv();
         this.currentCardContainer = cardContainer;
 
+        const onIncorrectComplete = (wasCorrect: boolean) => {
+            if (wasCorrect) this.sessionCorrect++;
+            const newState = SRSEngine.processReview(
+                this.pluginData.cards[item.id],
+                wasCorrect,
+                this.isConfidentToggle
+            );
+            this.pluginData.cards[item.id] = newState;
+            this.plugin.savePluginData();
+            this.reviewQueue.shift();
+            this.renderReviewLoop();
+        };
+
         const handleResult = (isCorrect: boolean, userAnswer: string) => {
             this.sessionReviewed++;
             if (isCorrect) {
@@ -298,19 +311,18 @@ export class SessionModal extends Modal {
                 this.reviewQueue.shift();
                 this.renderReviewLoop();
             } else {
-                // Delay scoring until the user decides: Continue (wrong) or I knew it (correct)
-                BaseEngine.renderIncorrectScreen(this.app, item.filePath, contentEl, item.currentCloze, userAnswer, (wasCorrect) => {
-                    if (wasCorrect) this.sessionCorrect++;
-                    const newState = SRSEngine.processReview(
-                        this.pluginData.cards[item.id],
-                        wasCorrect,
-                        this.isConfidentToggle
+                // Delay scoring until user decides: Continue (wrong) or I knew it (correct)
+                if (item.type === 'grid') {
+                    GridEngine.renderIncorrectScreen(
+                        this.app, item.filePath, contentEl, item, item.currentCloze,
+                        userAnswer, onIncorrectComplete, item.dict, this.allCards
                     );
-                    this.pluginData.cards[item.id] = newState;
-                    this.plugin.savePluginData();
-                    this.reviewQueue.shift();
-                    this.renderReviewLoop();
-                }, this.allCards);
+                } else {
+                    BaseEngine.renderIncorrectScreen(
+                        this.app, item.filePath, contentEl, item.currentCloze,
+                        userAnswer, onIncorrectComplete, this.allCards, item.dict, item
+                    );
+                }
             }
         };
 
@@ -321,7 +333,7 @@ export class SessionModal extends Modal {
         } else if (item.type === "svg") {
             SVGEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
         } else if (item.type === "map") {
-            MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
+            MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
         } else if (item.type === "code") {
             import('./engines/code').then(m => {
                 m.CodeEngine.renderInModal(this.app, item.filePath, cardContainer, item, handleResult);
