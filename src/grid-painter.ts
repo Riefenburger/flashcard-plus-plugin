@@ -24,11 +24,13 @@ interface PainterCategory {
 }
 
 interface ClozeFormat {
-    value?: string;           // single key name for cell display value (e.g. "number")
-    answers: string[];        // dict key names resolved as answers (e.g. ["name", "symbol"])
-    mirrorData: string[];     // dict key names resolved as mirror data (e.g. ["number", "mass"])
-    notes?: string;           // single key name for notes/hint (e.g. "group")
-    incorrectExtra: string[]; // dict key names shown as extra info on incorrect screen (e.g. ["group", "period"])
+    value?: string;                 // single key name for cell display value (e.g. "number")
+    answers: string[];              // dict key names resolved as answers (e.g. ["name", "symbol"])
+    mirrorData: string[];           // dict key names resolved as mirror data (e.g. ["number", "mass"])
+    notes?: string;                 // single key name for notes/hint (e.g. "group")
+    incorrectExtra: string[];       // dict key names shown as extra info chips on incorrect screen
+    incorrectCellValue?: string;    // key for what to show IN the target cell on incorrect screen (e.g. "symbol")
+    incorrectMirrorData?: string[]; // keys for the mirror cell on incorrect screen (e.g. ["number", "symbol", "mass"])
 }
 
 interface PainterState {
@@ -1161,6 +1163,8 @@ export class GridPainterModal extends Modal {
                 mirrorData: Array.isArray(cardData.clozeFormat.mirrorData) ? cardData.clozeFormat.mirrorData : [],
                 notes: cardData.clozeFormat.notes || undefined,
                 incorrectExtra: Array.isArray(cardData.clozeFormat.incorrectExtra) ? cardData.clozeFormat.incorrectExtra : [],
+                incorrectCellValue: cardData.clozeFormat.incorrectCellValue || undefined,
+                incorrectMirrorData: Array.isArray(cardData.clozeFormat.incorrectMirrorData) ? cardData.clozeFormat.incorrectMirrorData : [],
             };
         }
 
@@ -1441,8 +1445,8 @@ class ClozeFormatModal extends Modal {
     constructor(app: App, current: ClozeFormat | null, onSave: (fmt: ClozeFormat) => void) {
         super(app);
         this.fmt = current
-            ? { ...current, incorrectExtra: current.incorrectExtra ?? [] }
-            : { value: '', answers: [], mirrorData: [], notes: '', incorrectExtra: [] };
+            ? { ...current, incorrectExtra: current.incorrectExtra ?? [], incorrectMirrorData: current.incorrectMirrorData ?? [] }
+            : { value: '', answers: [], mirrorData: [], notes: '', incorrectExtra: [], incorrectCellValue: '', incorrectMirrorData: [] };
         this.onSave = onSave;
     }
 
@@ -1502,6 +1506,32 @@ class ClozeFormatModal extends Modal {
                 t.inputEl.placeholder = 'e.g. group, period, mass';
                 t.onChange(v => {
                     this.fmt.incorrectExtra = v.split(',').map(s => s.trim()).filter(Boolean);
+                });
+            });
+
+        contentEl.createEl('hr', { attr: { style: 'margin: 12px 0; border-color: var(--background-modifier-border);' } });
+        contentEl.createEl('p', {
+            text: 'Incorrect screen visuals — override what appears in the grid cells when wrong (leave blank to use defaults above)',
+            attr: { style: 'color:var(--text-muted); font-size:0.82em; margin-bottom:8px;' }
+        });
+
+        new Setting(contentEl)
+            .setName('Incorrect cell value key')
+            .setDesc('What to show inside the highlighted target cell — e.g. "symbol" shows H instead of the full name')
+            .addText(t => {
+                t.setValue(this.fmt.incorrectCellValue ?? '');
+                t.inputEl.placeholder = 'e.g. symbol';
+                t.onChange(v => { this.fmt.incorrectCellValue = v.trim() || undefined; });
+            });
+
+        new Setting(contentEl)
+            .setName('Incorrect mirror keys')
+            .setDesc('Comma-separated keys for the mirror cell — e.g. number, symbol, mass (replaces normal mirror data on the incorrect screen only)')
+            .addText(t => {
+                t.setValue((this.fmt.incorrectMirrorData ?? []).join(', '));
+                t.inputEl.placeholder = 'e.g. number, symbol, mass';
+                t.onChange(v => {
+                    this.fmt.incorrectMirrorData = v.split(',').map(s => s.trim()).filter(Boolean);
                 });
             });
 

@@ -268,13 +268,24 @@ export class GridEngine {
         const ns: string | undefined = cloze.clozeNamespace || cloze.namespace;
         const useFormat = !!(ns && fmt);
 
+        // During-question mirror data
         const mirrorDataArr: string[] = useFormat
             ? resolveFromFormat(Array.isArray(fmt.mirrorData) ? fmt.mirrorData : [], ns!, dict)
             : (Array.isArray(cloze.mirrorData) ? cloze.mirrorData : []).map((v: string) => resolve(v, dict));
 
+        // On incorrect screen: use incorrectMirrorData if set, otherwise fall back to mirrorData
+        const incorrectMirrorArr: string[] = (useFormat && Array.isArray(fmt.incorrectMirrorData) && fmt.incorrectMirrorData.length > 0)
+            ? resolveFromFormat(fmt.incorrectMirrorData, ns!, dict)
+            : mirrorDataArr;
+
         const answersArr: string[] = useFormat
             ? resolveFromFormat(Array.isArray(fmt.answers) ? fmt.answers : [], ns!, dict)
             : (cloze.answers || []).map((a: string) => resolve(a, dict));
+
+        // On incorrect screen: what to show IN the target cell
+        const incorrectCellText: string = (useFormat && fmt.incorrectCellValue)
+            ? (dict[`${ns}.${fmt.incorrectCellValue}`] ?? answersArr[0] ?? '')
+            : (answersArr[0] ?? '');
 
         const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
 
@@ -359,17 +370,19 @@ export class GridEngine {
                     cell.addClass('gi-grid-review-cell--empty');
                 } else if (isTarget) {
                     cell.addClass('gi-grid-review-cell--revealed');
-                    cell.setText(answersArr[0] ?? val);
+                    cell.setText(incorrectCellText || val);
                     targetCellEl = cell;
                 } else if (isMirror) {
                     cell.addClass('gi-grid-review-cell--mirror');
-                    mirrorVars.forEach((name, i) => {
-                        cell.style.setProperty(`--gi-${name}`, mirrorDataArr[i] ?? '');
+                    // Use the incorrect-specific mirror vars (may have more data than question mode)
+                    const mirrorVarsForIncorrect = mirrorVars.length > 0 ? mirrorVars : incorrectMirrorArr.map((_, i) => String(i));
+                    mirrorVarsForIncorrect.forEach((name, i) => {
+                        cell.style.setProperty(`--gi-${name}`, incorrectMirrorArr[i] ?? '');
                     });
-                    if (mirrorDataArr.length > 0) {
-                        mirrorVars.forEach((name, i) => {
-                            const v = mirrorDataArr[i] ?? '';
+                    if (incorrectMirrorArr.length > 0) {
+                        incorrectMirrorArr.forEach((v, i) => {
                             if (!v) return;
+                            const name = mirrorVars[i] ?? String(i);
                             const line = cell.createDiv({
                                 cls: `gi-mirror-line gi-mirror-var gi-mirror-var--${name}`
                             });
