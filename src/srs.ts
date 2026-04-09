@@ -11,9 +11,17 @@ export interface SessionRecord {
     decks: string[]; // decks included in this session
 }
 
+export interface SessionPrefs {
+    selectedDecks: string[];
+    selectedBatches: string[];
+    excludedClozeIds: string[];
+    sessionGroups: Record<string, string[]>; // groupName → cloze IDs
+}
+
 export interface PluginData {
     cards: Record<string, ClozeState>;
     history: SessionRecord[];
+    sessionPrefs?: SessionPrefs;
 }
 
 export const DEFAULT_DATA: PluginData = {

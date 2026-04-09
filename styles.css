@@ -21,6 +21,9 @@
     padding: 20px;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+    max-height: 100%;
+    box-sizing: border-box;
 }
 
 /* ── Incorrect screen ────────────────────────────────────────────────────── */
@@ -321,36 +324,167 @@
     flex-shrink: 0;
 }
 
-/* ── Batch selector ─────────────────────────────────────────────────────── */
+/* ── Deck + Batch collapsible tree ──────────────────────────────────────── */
 
-.gi-batch-section {
-    margin-top: 4px;
+.gi-deck-tree {
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.gi-batch-list {
-    background: var(--background-secondary);
+.gi-deck-tree-item {
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
     overflow: hidden;
-    margin-top: 4px;
 }
 
-.gi-batch-row {
+.gi-deck-tree-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 7px 10px;
+    cursor: pointer;
+    background: var(--background-secondary);
+    user-select: none;
+}
+
+.gi-deck-tree-header:hover {
+    background: var(--background-modifier-hover);
+}
+
+.gi-deck-tree-header label {
+    flex: 1;
     cursor: pointer;
 }
 
-.gi-batch-row:not(:last-child) {
+.gi-deck-tree-toggle {
+    font-size: 0.65em;
+    color: var(--text-muted);
+    width: 12px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.gi-deck-tree-batches {
+    background: var(--background-primary);
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.gi-deck-tree-batch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px 6px 30px;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.gi-deck-tree-batch:not(:last-child) {
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.gi-batch-row label {
+.gi-deck-tree-batch:hover {
+    background: var(--background-modifier-hover);
+}
+
+.gi-deck-tree-batch label {
     flex: 1;
     cursor: pointer;
+}
+
+.gi-deck-tree-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px 4px 30px;
+    font-size: 0.82em;
+    color: var(--text-muted);
+    border-top: 1px solid var(--background-modifier-border);
+    cursor: grab;
+}
+
+.gi-deck-tree-card:hover {
+    background: var(--background-modifier-hover);
+}
+
+.gi-deck-tree-card.gi-card-dragging {
+    opacity: 0.4;
+}
+
+.gi-deck-tree-card input[type="checkbox"] {
+    flex-shrink: 0;
+}
+
+.gi-deck-tree-card-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+/* ── Groups ─────────────────────────────────────────────────────────────── */
+
+.gi-group-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.gi-group-item {
+    border: 2px dashed var(--background-modifier-border);
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.gi-group-item.gi-group-drop-hover {
+    border-color: var(--interactive-accent);
+    background: rgba(var(--interactive-accent-rgb, 99,102,241), 0.08);
+}
+
+.gi-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+    background: var(--background-secondary);
+    user-select: none;
+}
+
+.gi-group-header:hover {
+    background: var(--background-modifier-hover);
+}
+
+.gi-group-name {
+    flex: 1;
     font-size: 0.9em;
+    font-weight: 600;
+}
+
+.gi-group-delete-btn {
+    padding: 2px 6px !important;
+    font-size: 0.75em !important;
+    min-height: unset !important;
+    flex-shrink: 0;
+}
+
+.gi-group-new-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+}
+
+.gi-group-new-input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 0.9em;
+    border-radius: 6px;
+    border: 1px solid var(--interactive-accent);
+    background: var(--background-primary);
 }
 
 /* ── Memory matrix deck legend ──────────────────────────────────────────── */
@@ -1175,16 +1309,44 @@ button.mod-ghost:hover {
 
 /* ── Map inline answer input ─────────────────────────────────────────── */
 
-.gi-map-answer-input {
-    width: 100%;
-    padding: 10px;
-    font-size: 16px;
+/* ── Map/Constellation inline input bar ─────────────────────────────── */
+
+.gi-map-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
     margin-top: 10px;
+    background: var(--background-secondary);
     border-radius: 6px;
     border: 1px solid var(--background-modifier-border);
+}
+
+.gi-map-input-label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gi-map-answer-input {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--interactive-accent);
     background: var(--background-primary);
     color: var(--text-normal);
-    box-sizing: border-box;
+    min-width: 0;
+}
+
+.gi-map-submit-btn {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    font-size: 1em;
 }
 
 /* ── Map reveal label (shown on incorrect) ───────────────────────────── */
@@ -1913,16 +2075,32 @@ button.mod-ghost:hover {
         height: 90px !important;
     }
 
-    /* Deck / batch rows — easier to tap */
-    .gi-deck-row,
-    .gi-batch-row {
+    /* Deck tree rows — easier to tap */
+    .gi-deck-tree-header,
+    .gi-deck-tree-batch {
         padding: 12px 10px;
         min-height: 44px;
+    }
+
+    .gi-deck-tree-batch {
+        padding-left: 30px;
     }
 
     /* Deck header row — search + All/None buttons */
     .gi-deck-header-row {
         gap: 6px;
+    }
+
+    /* Map/Constellation input bar — sticky so it stays above keyboard */
+    .gi-map-input-wrap {
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+        padding-bottom: max(10px, env(safe-area-inset-bottom));
     }
 
     .gi-deck-search {
@@ -1947,13 +2125,16 @@ button.mod-ghost:hover {
         padding: 12px;
     }
 
-    /* Card answer input on the review screen */
+    /* Card answer input — larger touch target on mobile */
     .gi-map-answer-input {
-        font-size: 1.2em;
-        padding: 14px;
-        border-radius: 10px;
-        width: 100%;
-        box-sizing: border-box;
+        font-size: 1.1em;
+        padding: 12px 10px;
+    }
+
+    .gi-map-submit-btn {
+        min-height: 44px;
+        padding: 10px 18px;
+        font-size: 1.1em;
     }
 
     /* ── Incorrect screen ──────────────────────────────────────────────────── */

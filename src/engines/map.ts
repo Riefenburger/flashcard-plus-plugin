@@ -1,4 +1,4 @@
-import { App, Platform, setIcon, TFile } from 'obsidian';
+import { App, setIcon, TFile } from 'obsidian';
 import * as L from 'leaflet';
 import worldGeoJSON from '../data/world-110m.json';
 import { BaseEngine } from './base-engine';
@@ -38,10 +38,7 @@ export class MapEngine {
         });
 
         // Store cleanup on container so session-modal can call it
-        (container as any)._leafletCleanup = () => {
-            floatingOverlay?.remove();
-            map.remove();
-        };
+        (container as any)._leafletCleanup = () => { map.remove(); };
 
         const isHistorical = cloze.era && cloze.era !== 'present';
 
@@ -71,44 +68,25 @@ export class MapEngine {
 
         requestAnimationFrame(() => map.invalidateSize());
 
-        // ── Input — floating overlay on mobile, inline on desktop ────────────
-        let inputEl: HTMLInputElement;
-        let floatingOverlay: HTMLElement | null = null;
+        // ── Input — inline sticky bar (reliable on iOS; avoids body-append issues) ──
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type answer…',
+            attr: { inputmode: 'text', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
+            cls: 'gi-map-answer-input'
+        });
+        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
-        if (Platform.isMobile) {
-            // Fixed overlay so the keyboard can't push it offscreen or shrink the map
-            floatingOverlay = document.body.createDiv({ cls: 'gi-floating-input-overlay' });
-            floatingOverlay.createEl('span', {
-                text: cloze.front || 'Answer:',
-                cls: 'gi-floating-input-prompt'
-            });
-            inputEl = floatingOverlay.createEl('input', {
-                type: 'text',
-                placeholder: 'Type answer…',
-                cls: 'gi-floating-input'
-            });
-        } else {
-            inputEl = container.createEl('input', {
-                type: 'text',
-                placeholder: 'Type your answer…',
-                cls: 'gi-map-answer-input'
-            });
-        }
-
-        setTimeout(() => inputEl.focus(), 100);
+        setTimeout(() => inputEl.focus(), 80);
 
         const handleSubmit = (rawAnswer: string) => {
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
 
-            // Remove the input (inline or floating)
-            if (floatingOverlay) {
-                floatingOverlay.remove();
-                floatingOverlay = null;
-            } else {
-                inputEl.remove();
-            }
+            inputWrap.remove();
 
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
@@ -132,6 +110,7 @@ export class MapEngine {
             }
         };
 
+        submitBtn.onclick = () => handleSubmit(inputEl.value);
         inputEl.onkeydown = (e) => {
             if (e.key === 'Enter') handleSubmit(inputEl.value);
         };

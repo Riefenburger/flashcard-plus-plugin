@@ -1,4 +1,4 @@
-import { App, Platform, setIcon } from 'obsidian';
+import { App, setIcon } from 'obsidian';
 import boundsGeoJSON from '../data/constellations.bounds.json';
 import linesGeoJSON from '../data/constellations.lines.json';
 import { BaseEngine } from './base-engine';
@@ -113,24 +113,45 @@ function drawSky(
         }
     }
 
-    // ── Stars ─────────────────────────────────────────────────────────────────
+    // ── Collect target star positions from line endpoints ────────────────────
+    // stars.6.json has no `con` field, so we derive constellation stars
+    // from the stick-figure line endpoints (exact RA/Dec of each star node).
+    const targetStarCoords = new Set<string>(); // "lo,la" keys
+    const targetStarPoints: Array<[number, number]> = [];
+    if (targetId) {
+        const targetLines = lines.find((f: any) => f.id === targetId);
+        if (targetLines) {
+            const segs: number[][][] = targetLines.geometry.type === 'LineString'
+                ? [targetLines.geometry.coordinates as number[][]]
+                : targetLines.geometry.coordinates as number[][][];
+            for (const seg of segs) {
+                for (const coord of seg) {
+                    const key = `${coord[0]},${coord[1]}`;
+                    if (!targetStarCoords.has(key)) {
+                        targetStarCoords.add(key);
+                        targetStarPoints.push([coord[0] ?? 0, coord[1] ?? 0]);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Background stars (dim when a target is active) ───────────────────────
     for (const f of stars) {
         const coords = f.geometry.coordinates as number[];
         const lo = coords[0] ?? 0, la = coords[1] ?? 0;
         const [sx, sy, z] = p(lo, la);
         if (z < 0) continue;
         const mag: number = f.properties.mag ?? 5;
-        // Size: Sirius ~3.5px, mag 6 → 0.5px
         const sr = Math.max(0.5, (6.5 - mag) * 0.45);
-        // Alpha: brightest = 1.0, dimmest = 0.4
-        const alpha = Math.min(1, 0.4 + (6.5 - mag) / 7.5);
-        // B-V tint: hot stars are blue-white, cool stars are warm-orange
+        const baseAlpha = Math.min(1, 0.4 + (6.5 - mag) / 7.5);
+        // Dim background stars a bit when a target is shown, but keep them visible
+        const alpha = targetId ? baseAlpha * 0.45 : baseAlpha;
         const bv: number = parseFloat(f.properties.bv) || 0;
         const rr = Math.round(Math.min(255, 195 + bv * 12));
         const gg = Math.round(Math.min(255, 210 - bv * 4));
         const bb = Math.round(Math.min(255, 255 - bv * 22));
-        // Glow for bright stars (mag < 2)
-        if (mag < 2) {
+        if (!targetId && mag < 2) {
             const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.5);
             grd.addColorStop(0, `rgba(${rr},${gg},${bb},${(alpha * 0.35).toFixed(2)})`);
             grd.addColorStop(1, 'rgba(0,0,0,0)');
@@ -208,6 +229,34 @@ function drawSky(
             }
             ctx.shadowBlur = 0;
         }
+    }
+
+    // ── Target constellation stars — bright gold pass (drawn on top of lines) ──
+    // Size is proportional to the projection radius so they don't balloon at low zoom.
+    const conStarR = Math.max(1.8, r * 0.013); // ~2.2px at zoom=1 on a 400px canvas
+    const glowR = conStarR * 2.4;
+    for (const [lo, la] of targetStarPoints) {
+        const [sx, sy, z] = p(lo, la);
+        if (z < 0) continue;
+
+        // Tight glow halo
+        const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+        grd.addColorStop(0, 'rgba(255, 230, 80, 0.75)');
+        grd.addColorStop(0.5, 'rgba(255, 200, 40, 0.25)');
+        grd.addColorStop(1, 'rgba(255, 160, 0, 0)');
+        ctx.beginPath();
+        ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+
+        // Sharp bright core
+        ctx.shadowColor = '#ffe050';
+        ctx.shadowBlur = conStarR * 2;
+        ctx.beginPath();
+        ctx.arc(sx, sy, conStarR, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffee88';
+        ctx.fill();
+        ctx.shadowBlur = 0;
     }
 
     // ── Preview mode: name labels for included constellations ─────────────────
@@ -296,7 +345,7 @@ function attachDrag(
         const [lon, lat, zoom] = getView();
         const rr = (Math.min(canvas.clientWidth, canvas.clientHeight) / 2 - 4) * zoom;
         let newLon = lon + (dx / rr) * (180 / Math.PI);
-        const newLat = Math.max(-90, Math.min(90, lat - (dy / rr) * (180 / Math.PI)));
+        const newLat = Math.max(-90, Math.min(90, lat + (dy / rr) * (180 / Math.PI)));
         if (newLon >  180) newLon -= 360;
         if (newLon < -180) newLon += 360;
         setView(newLon, newLat, zoom);
@@ -416,38 +465,25 @@ export class ConstellationEngine {
             cleanupDrag();
         };
 
-        // ── Input ─────────────────────────────────────────────────────────────
-        let inputEl: HTMLInputElement;
-        let floatingOverlay: HTMLElement | null = null;
+        // ── Input — inline sticky bar (reliable on iOS; avoids body-append issues) ──
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type constellation name…',
+            attr: { inputmode: 'text', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
+            cls: 'gi-map-answer-input'
+        });
+        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
-        if (Platform.isMobile) {
-            floatingOverlay = document.body.createDiv({ cls: 'gi-floating-input-overlay' });
-            floatingOverlay.createEl('span', {
-                text: cloze.front || 'Answer:',
-                cls: 'gi-floating-input-prompt'
-            });
-            inputEl = floatingOverlay.createEl('input', {
-                type: 'text',
-                placeholder: 'Type constellation name…',
-                cls: 'gi-floating-input'
-            });
-        } else {
-            inputEl = container.createEl('input', {
-                type: 'text',
-                placeholder: 'Type constellation name…',
-                cls: 'gi-map-answer-input'
-            });
-        }
-
-        setTimeout(() => inputEl.focus(), 100);
+        setTimeout(() => inputEl.focus(), 80);
 
         const handleSubmit = (rawAnswer: string) => {
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
 
-            if (floatingOverlay) { floatingOverlay.remove(); floatingOverlay = null; }
-            else inputEl.remove();
+            inputWrap.remove();
 
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
@@ -470,6 +506,7 @@ export class ConstellationEngine {
             }
         };
 
+        submitBtn.onclick = () => handleSubmit(inputEl.value);
         inputEl.onkeydown = (e) => {
             if (e.key === 'Enter') handleSubmit(inputEl.value);
         };
