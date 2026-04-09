@@ -1101,6 +1101,8 @@ button.mod-ghost:hover {
     max-width: 440px;
     max-height: 440px;
     margin: 8px auto;
+    background: #060d1a; /* deep-space fill so canvas corners blend when zoomed out */
+    border-radius: 6px;
 }
 
 .gi-const-canvas {
@@ -1108,8 +1110,10 @@ button.mod-ghost:hover {
     height: 100%;
     cursor: grab;
     touch-action: none;
-    border-radius: 50%;
     display: block;
+    /* No border-radius — the sphere circle is drawn in canvas, not via CSS.
+       CSS border-radius would pin the visible circle to a fixed size
+       regardless of zoom, defeating the entire zoom implementation. */
 }
 
 .gi-const-canvas:active {

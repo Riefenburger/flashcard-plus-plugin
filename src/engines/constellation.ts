@@ -65,7 +65,9 @@ function drawSky(
     // At zoom=1 the sphere fits the canvas exactly; at zoom>1 the sphere grows
     // beyond the canvas edge and the canvas clips it — the same way zooming into
     // a globe makes the ball get bigger and the rim disappear off-screen.
-    const baseR = Math.min(W, H) / 2 - 4;
+    // Leave ~12% margin at zoom=1 so the sphere has visible padding and the
+    // user can clearly see it growing as they zoom in.
+    const baseR = Math.min(W, H) / 2 * 0.86;
     const r     = baseR * zoom;
 
     const bounds = (boundsGeoJSON as any).features as any[];
