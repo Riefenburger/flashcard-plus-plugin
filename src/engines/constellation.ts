@@ -2,6 +2,7 @@ import { App, setIcon } from 'obsidian';
 import boundsGeoJSON from '../data/constellations.bounds.json';
 import linesGeoJSON from '../data/constellations.lines.json';
 import { BaseEngine } from './base-engine';
+import { createAnswerInput } from '../ghost-input';
 
 // stars.6.json has dots in its name so we use require
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -460,30 +461,13 @@ export class ConstellationEngine {
             draw
         );
 
-        (container as any)._leafletCleanup = () => {
-            ro.disconnect();
-            cleanupDrag();
-        };
+        // ── Input ─────────────────────────────────────────────────────────────
+        const answerInput = createAnswerInput(container, cloze.front || 'Name this constellation:', (rawAnswer) => {
+            answerInput.remove();
 
-        // ── Input — inline sticky bar (reliable on iOS; avoids body-append issues) ──
-        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
-        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
-        const inputEl = inputWrap.createEl('input', {
-            type: 'text',
-            placeholder: 'Type constellation name…',
-            attr: { inputmode: 'text', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
-            cls: 'gi-map-answer-input'
-        });
-        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
-
-        setTimeout(() => inputEl.focus(), 80);
-
-        const handleSubmit = (rawAnswer: string) => {
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
-
-            inputWrap.remove();
 
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
@@ -504,11 +488,13 @@ export class ConstellationEngine {
                     [], dict, cardData
                 );
             }
-        };
+        });
+        answerInput.focus();
 
-        submitBtn.onclick = () => handleSubmit(inputEl.value);
-        inputEl.onkeydown = (e) => {
-            if (e.key === 'Enter') handleSubmit(inputEl.value);
+        (container as any)._leafletCleanup = () => {
+            answerInput.remove();
+            ro.disconnect();
+            cleanupDrag();
         };
     }
 

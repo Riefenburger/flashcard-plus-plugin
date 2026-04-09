@@ -3,6 +3,7 @@ import * as L from 'leaflet';
 import worldGeoJSON from '../data/world-110m.json';
 import { BaseEngine } from './base-engine';
 import { renderMathInContainer } from '../utils/render-math';
+import { createAnswerInput } from '../ghost-input';
 
 export class MapEngine {
     static async renderInModal(
@@ -38,7 +39,7 @@ export class MapEngine {
         });
 
         // Store cleanup on container so session-modal can call it
-        (container as any)._leafletCleanup = () => { map.remove(); };
+        (container as any)._leafletCleanup = () => { answerInput.remove(); map.remove(); };
 
         const isHistorical = cloze.era && cloze.era !== 'present';
 
@@ -68,52 +69,31 @@ export class MapEngine {
 
         requestAnimationFrame(() => map.invalidateSize());
 
-        // ── Input — inline sticky bar (reliable on iOS; avoids body-append issues) ──
-        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
-        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
-        const inputEl = inputWrap.createEl('input', {
-            type: 'text',
-            placeholder: 'Type answer…',
-            attr: { inputmode: 'text', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
-            cls: 'gi-map-answer-input'
-        });
-        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
+        // ── Input ─────────────────────────────────────────────────────────────
+        const answerInput = createAnswerInput(container, cloze.front || 'Answer:', (rawAnswer) => {
+            answerInput.remove();
 
-        setTimeout(() => inputEl.focus(), 80);
-
-        const handleSubmit = (rawAnswer: string) => {
             const userAnswer = rawAnswer.trim().toLowerCase();
             const correctAnswers = (cloze.back || []).map((a: string) => a.toLowerCase());
             const isCorrect = correctAnswers.includes(userAnswer);
 
-            inputWrap.remove();
-
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
             } else {
-                // Reveal the correct country on the map
                 MapEngine.revealFeature(geoJsonLayer, cloze, map, isHistorical);
-
-                // Show incorrect screen BELOW the map (map stays visible)
                 const compareCard = container.createDiv({ cls: 'gi-incorrect-card' });
-
                 const hdr = compareCard.createDiv({ cls: 'gi-incorrect-hdr' });
                 const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
                 setIcon(iconEl, 'x-circle');
                 hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
-
                 BaseEngine.renderIncorrectContent(
                     app, filePath, compareCard, cloze, rawAnswer.trim(),
                     (wasCorrect) => onComplete(wasCorrect, rawAnswer.trim()),
                     [], dict, cardData
                 );
             }
-        };
-
-        submitBtn.onclick = () => handleSubmit(inputEl.value);
-        inputEl.onkeydown = (e) => {
-            if (e.key === 'Enter') handleSubmit(inputEl.value);
-        };
+        });
+        answerInput.focus();
     }
 
     static async loadGeoJSON(app: App, era: string): Promise<any> {
