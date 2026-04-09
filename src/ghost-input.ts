@@ -60,7 +60,7 @@ export function createAnswerInput(
 
     const input = overlay.createEl('input', {
         type: 'text',
-        placeholder: 'Type answer…',
+        placeholder: '👆 Tap here to type…',
         cls: 'gi-answer-overlay-input',
         attr: {
             autocomplete:   'off',
@@ -82,7 +82,9 @@ export function createAnswerInput(
 
     return {
         remove: () => overlay.remove(),
-        // On Android focus() works; on iOS the user taps the input directly.
-        focus: () => setTimeout(() => input.focus(), 120),
+        // Don't programmatically focus — Android WebView blocks it outside a
+        // user gesture. The overlay input is a direct tap target; the user
+        // taps it and the keyboard opens reliably every time.
+        focus: () => { /* intentionally empty */ },
     };
 }

@@ -1401,21 +1401,30 @@ button.mod-ghost:hover {
     white-space: nowrap;
 }
 
-/* Real input inside the overlay — font-size:16px prevents OS auto-zoom */
+/* Real input inside the overlay — font-size:16px prevents OS auto-zoom.
+   Pulsing border makes it obvious this is a tap target on mobile.        */
 .gi-answer-overlay-input {
     flex: 1;
     min-width: 0;
     font-size: 16px;
     padding: 8px 10px;
     border-radius: 8px;
-    border: 1px solid var(--background-modifier-border);
+    border: 2px solid var(--interactive-accent);
     background: var(--background-secondary);
     color: var(--text-normal);
     outline: none;
+    animation: gi-input-pulse 1.8s ease-in-out infinite;
 }
 
 .gi-answer-overlay-input:focus {
+    animation: none;
     border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb, 99,102,241), 0.25);
+}
+
+@keyframes gi-input-pulse {
+    0%, 100% { box-shadow: 0 0 0 0px rgba(var(--interactive-accent-rgb, 99,102,241), 0.4); }
+    50%       { box-shadow: 0 0 0 5px rgba(var(--interactive-accent-rgb, 99,102,241), 0); }
 }
 
 /* ── Incorrect extra info chips ──────────────────────────────────────── */
