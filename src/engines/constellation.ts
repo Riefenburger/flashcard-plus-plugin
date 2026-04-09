@@ -61,8 +61,12 @@ function drawSky(
     canvas.height = H;
     const ctx = canvas.getContext('2d')!;
     const cx = W / 2, cy = H / 2;
-    const visR = Math.min(W, H) / 2 - 4; // visual circle radius (clip + chrome)
-    const r    = visR * zoom;              // projection radius (grows with zoom)
+    // r is both the projection radius AND the sphere circle radius on screen.
+    // At zoom=1 the sphere fits the canvas exactly; at zoom>1 the sphere grows
+    // beyond the canvas edge and the canvas clips it — the same way zooming into
+    // a globe makes the ball get bigger and the rim disappear off-screen.
+    const baseR = Math.min(W, H) / 2 - 4;
+    const r     = baseR * zoom;
 
     const bounds = (boundsGeoJSON as any).features as any[];
     const lines  = (linesGeoJSON as any).features as any[];
@@ -71,16 +75,16 @@ function drawSky(
     const p = (lo: number, la: number) =>
         proj(lo, la, viewLon, viewLat, r, cx, cy);
 
-    // ── Sky dome ─────────────────────────────────────────────────────────────
+    // ── Sky dome — fills the sphere circle (grows with zoom) ──────────────────
     ctx.beginPath();
-    ctx.arc(cx, cy, visR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = '#060d1a';
     ctx.fill();
 
-    // ── Clip everything inside the circle ─────────────────────────────────────
+    // ── Clip everything to the sphere boundary ─────────────────────────────────
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, visR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.clip();
 
     // ── Non-target boundary grid lines ────────────────────────────────────────
@@ -250,18 +254,23 @@ function drawSky(
 
     ctx.restore(); // end clip
 
-    // ── Limb vignette + rim (always at visual circle, not zoomed radius) ────────
+    // ── Limb vignette + rim — follows sphere radius ───────────────────────────
+    // When zoomed in (r > canvas) the rim is off-screen naturally; when r ≤ baseR
+    // the rim ring is visible at the sphere edge.
     ctx.save();
-    const grad = ctx.createRadialGradient(cx, cy, visR * 0.80, cx, cy, visR);
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
     grad.addColorStop(0, 'rgba(6,13,26,0)');
-    grad.addColorStop(1, 'rgba(3,7,16,0.70)');
+    grad.addColorStop(1, 'rgba(3,7,16,0.72)');
     ctx.beginPath();
-    ctx.arc(cx, cy, visR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(40,70,130,0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // Rim only drawn when sphere fits in canvas (i.e. not zoomed in)
+    if (zoom <= 1.05) {
+        ctx.strokeStyle = 'rgba(40,70,130,0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
     ctx.restore();
 }
 
