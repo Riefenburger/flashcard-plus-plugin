@@ -321,6 +321,38 @@
     flex-shrink: 0;
 }
 
+/* ── Batch selector ─────────────────────────────────────────────────────── */
+
+.gi-batch-section {
+    margin-top: 4px;
+}
+
+.gi-batch-list {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 4px;
+}
+
+.gi-batch-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.gi-batch-row:not(:last-child) {
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.gi-batch-row label {
+    flex: 1;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
 /* ── Memory matrix deck legend ──────────────────────────────────────────── */
 
 .gi-deck-legend {
@@ -1059,6 +1091,53 @@ button.mod-ghost:hover {
     overflow: hidden;
     border: 1px solid var(--background-modifier-border);
     margin: 8px 0;
+}
+
+/* Constellation globe — canvas-based sky view */
+.gi-const-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-width: 440px;
+    max-height: 440px;
+    margin: 8px auto;
+}
+
+.gi-const-canvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: none;
+    border-radius: 50%;
+    display: block;
+}
+
+.gi-const-canvas:active {
+    cursor: grabbing;
+}
+
+/* Inline preview — smaller, inside the note */
+.gi-const-preview {
+    max-width: 260px;
+    max-height: 260px;
+}
+
+/* Constellation name list below the inline globe */
+.gi-const-name-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    margin-top: 8px;
+    padding: 0 2px;
+}
+
+.gi-const-name-chip {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
 }
 
 /* Country name labels shown during authoring (labelsPane) */

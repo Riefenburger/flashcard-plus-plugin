@@ -7,6 +7,8 @@ import { CardCreatorPickerModal } from 'card-creator';
 import { TraditionalCreatorModal } from './creators/traditional-creator';
 import { DictionaryEditorModal, BrowseDictionaryModal } from './dictionary-editor';
 import { GeoDeckModal } from './geo-deck';
+import { ConstellationDeckModal } from './constellation-deck';
+import { ConstellationEngine } from './engines/constellation';
 import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
@@ -56,6 +58,13 @@ export default class GrandInventoryPlugin extends Plugin {
             id: 'generate-geo-deck',
             name: 'Generate Geography Deck',
             callback: () => new GeoDeckModal(this.app).open()
+        });
+
+        // Command palette — generate a constellation deck
+        this.addCommand({
+            id: 'generate-constellation-deck',
+            name: 'Generate Constellation Deck',
+            callback: () => new ConstellationDeckModal(this.app).open()
         });
 
         // Inline renderer — inventory-dict TOML blocks
@@ -168,6 +177,20 @@ export default class GrandInventoryPlugin extends Plugin {
                 setIcon(mapRow, 'map');
                 mapRow.appendText(` Map · Eras: ${eraNames}`);
                 info.createEl("div", { text: `Clozes: ${cardData.clozes?.length || 0}` });
+            } else if (cardData.type === "constellation") {
+                const previewWrap = el.createDiv({ cls: 'gi-const-wrap gi-const-preview' });
+                ConstellationEngine.renderPreview(previewWrap, cardData);
+                // Constellation list below the globe
+                const clozes: any[] = cardData.clozes || [];
+                if (clozes.length > 0) {
+                    const listWrap = el.createDiv({ cls: 'gi-const-name-list' });
+                    clozes.forEach((c: any) => {
+                        listWrap.createEl('span', {
+                            text: c.featureName || c.featureId || c.id,
+                            cls: 'gi-const-name-chip'
+                        });
+                    });
+                }
             } else if (cardData.type === "timeline") {
                 const info = el.createDiv({ attr: { style: "color:var(--text-muted); font-size:0.9em;" } });
                 const tlRow = info.createDiv({ attr: { style: 'display:flex; align-items:center; gap:4px;' } });

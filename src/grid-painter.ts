@@ -37,6 +37,7 @@ interface ClozeFormat {
 interface PainterState {
     title: string;
     deck: string;
+    batch: string;             // optional grouping label within the deck (e.g. "Week 1", "Northern Sky")
     cardId: string;
     columns: number;
     rows: number;
@@ -198,6 +199,7 @@ export class GridPainterModal extends Modal {
         this.state = {
             title: 'My Grid Card',
             deck: 'Grand Inventory',
+            batch: '',
             cardId: '',
             columns: 18,
             rows: 10,
@@ -289,6 +291,12 @@ export class GridPainterModal extends Modal {
         const deckInput = deckWrap.createEl('input', { type: 'text' });
         deckInput.value = this.state.deck;
         deckInput.oninput = () => { this.state.deck = deckInput.value; };
+
+        const batchWrap = metaRow.createDiv({ cls: 'gi-painter-field' });
+        batchWrap.createEl('label', { text: 'Batch' });
+        const batchInput = batchWrap.createEl('input', { type: 'text', attr: { placeholder: 'e.g. Week 1' } });
+        batchInput.value = this.state.batch;
+        batchInput.oninput = () => { this.state.batch = batchInput.value; };
 
         const idWrap = metaRow.createDiv({ cls: 'gi-painter-field gi-painter-field--sm' });
         idWrap.createEl('label', { text: 'ID' });
@@ -1086,6 +1094,7 @@ export class GridPainterModal extends Modal {
     private loadFromCardData(cardData: any) {
         this.state.title = cardData.title || '';
         this.state.deck = cardData.deck || '';
+        this.state.batch = cardData.batch || '';
         this.state.cardId = cardData.id || '';
         this.state.columns = cardData.columns || 18;
 
@@ -1278,6 +1287,7 @@ export class GridPainterModal extends Modal {
         };
         if (state.cardId) result.id = state.cardId;
         if (state.deck) result.deck = state.deck;
+        if (state.batch) result.batch = state.batch;
         if (Object.keys(categoriesObj).length > 0) result.categories = categoriesObj;
         if (clozes.length > 0) result.clozes = clozes;
 

@@ -6,6 +6,7 @@ import { TraditionalEngine } from './engines/traditional';
 import { AudioEngine } from './engines/audio';
 import { SVGEngine } from './engines/svg';
 import { MapEngine } from './engines/map';
+import { ConstellationEngine } from './engines/constellation';
 import GrandInventoryPlugin from './main';
 
 // Deterministic hue from deck name
@@ -22,6 +23,9 @@ export class SessionModal extends Modal {
     dict: Record<string, string>;
     availableDecks: Set<string> = new Set();
     selectedDecks: Set<string> = new Set();
+    // batch: "deck::batch" keys for all cards that have a batch label
+    availableBatches: Map<string, Set<string>> = new Map(); // deck → Set<batchLabel>
+    selectedBatches: Set<string> = new Set();               // "deck::batch" strings
     reviewQueue: any[] = [];
     currentCardContainer: HTMLElement | null = null;
     private sessionReviewed = 0;
@@ -37,9 +41,18 @@ export class SessionModal extends Modal {
         this.plugin = plugin;
 
         this.allCards.forEach(card => {
-            if (card && card.deck && card.type !== 'dictionary') this.availableDecks.add(card.deck);
+            if (!card || !card.deck || card.type === 'dictionary') return;
+            this.availableDecks.add(card.deck);
+            if (card.batch) {
+                if (!this.availableBatches.has(card.deck)) this.availableBatches.set(card.deck, new Set());
+                this.availableBatches.get(card.deck)!.add(card.batch);
+            }
         });
         this.selectedDecks = new Set(this.availableDecks);
+        // Default: all batches selected
+        this.availableBatches.forEach((batches, deck) => {
+            batches.forEach(b => this.selectedBatches.add(`${deck}::${b}`));
+        });
     }
 
     onOpen() {
@@ -156,6 +169,9 @@ export class SessionModal extends Modal {
 
         const deckList = contentEl.createDiv({ cls: 'gi-deck-list' });
 
+        // Forward ref so renderDecks can call renderBatches even though it's defined below
+        let renderBatches = () => {};
+
         const renderDecks = (filter = '') => {
             deckList.empty();
             [...this.availableDecks]
@@ -175,6 +191,7 @@ export class SessionModal extends Modal {
                     cb.checked = this.selectedDecks.has(deckName);
                     cb.onchange = () => {
                         cb.checked ? this.selectedDecks.add(deckName) : this.selectedDecks.delete(deckName);
+                        renderBatches();
                     };
 
                     const label = row.createEl('label', { text: deckName });
@@ -194,6 +211,65 @@ export class SessionModal extends Modal {
             this.selectedDecks.clear();
             renderDecks(searchInput.value);
         };
+
+        // ── Batch Selector ─────────────────────────────────────────────────
+        // Only visible when at least one selected deck has batches defined
+        const batchSection = contentEl.createDiv({ cls: 'gi-batch-section' });
+
+        renderBatches = () => {
+            batchSection.empty();
+
+            // Collect batches for currently selected decks
+            const visibleBatches: Array<{ deck: string; batch: string; key: string }> = [];
+            this.selectedDecks.forEach(deck => {
+                const batches = this.availableBatches.get(deck);
+                if (batches) {
+                    [...batches].sort().forEach(b => visibleBatches.push({ deck, batch: b, key: `${deck}::${b}` }));
+                }
+            });
+
+            if (visibleBatches.length === 0) return;
+
+            batchSection.createEl('h4', { text: 'Batches', attr: { style: 'margin: 16px 0 8px;' } });
+            const batchHdr = batchSection.createDiv({ cls: 'gi-deck-header-row' });
+            const batchAllBtn = batchHdr.createEl('button', { text: 'All', cls: 'mod-ghost' });
+            const batchNoneBtn = batchHdr.createEl('button', { text: 'None', cls: 'mod-ghost' });
+
+            const batchList = batchSection.createDiv({ cls: 'gi-batch-list' });
+            const multiDeck = new Set(visibleBatches.map(v => v.deck)).size > 1;
+
+            const renderBatchRows = () => {
+                batchList.empty();
+                visibleBatches.forEach(({ deck, batch, key }) => {
+                    const row = batchList.createDiv({ cls: 'gi-batch-row' });
+                    const cb = row.createEl('input', { type: 'checkbox' });
+                    cb.id = `gi-batch-cb-${key}`;
+                    cb.checked = this.selectedBatches.has(key);
+                    cb.onchange = () => {
+                        cb.checked ? this.selectedBatches.add(key) : this.selectedBatches.delete(key);
+                    };
+                    const label = row.createEl('label', { text: multiDeck ? `${batch}  ·  ${deck}` : batch });
+                    label.htmlFor = cb.id;
+
+                    const count = this.allCards
+                        .filter(c => c.deck === deck && c.batch === batch)
+                        .reduce((n: number, c: any) => n + (c.clozes?.length || 0), 0);
+                    row.createEl('span', { text: String(count), cls: 'gi-deck-count' });
+                });
+            };
+
+            renderBatchRows();
+            batchAllBtn.onclick = () => {
+                visibleBatches.forEach(({ key }) => this.selectedBatches.add(key));
+                renderBatchRows();
+            };
+            batchNoneBtn.onclick = () => {
+                visibleBatches.forEach(({ key }) => this.selectedBatches.delete(key));
+                renderBatchRows();
+            };
+        };
+
+        renderBatches();
 
         // ── Confidence Toggle ──────────────────────────────────────────────
         new Setting(contentEl)
@@ -221,7 +297,12 @@ export class SessionModal extends Modal {
         this.sessionReviewed = 0;
         this.sessionCorrect = 0;
         this.sessionStart = Date.now();
-        const filtered = this.allCards.filter(c => c.type !== 'dictionary' && this.selectedDecks.has(c.deck));
+        const filtered = this.allCards.filter(c => {
+            if (c.type === 'dictionary' || !this.selectedDecks.has(c.deck)) return false;
+            // If this card has a batch, it must be selected; if no batch, always include
+            if (c.batch) return this.selectedBatches.has(`${c.deck}::${c.batch}`);
+            return true;
+        });
         filtered.forEach(card => {
             card.clozes.forEach((cloze: any) => {
                 this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
@@ -311,6 +392,13 @@ export class SessionModal extends Modal {
                 this.reviewQueue.shift();
                 this.renderReviewLoop();
             } else {
+                // map / constellation handle their own incorrect UI internally.
+                // When they call back with false it means the user already reviewed
+                // the reveal and confirmed they got it wrong — just score and advance.
+                if (item.type === 'map' || item.type === 'constellation') {
+                    onIncorrectComplete(false);
+                    return;
+                }
                 // Delay scoring until user decides: Continue (wrong) or I knew it (correct)
                 if (item.type === 'grid') {
                     GridEngine.renderIncorrectScreen(
@@ -334,6 +422,8 @@ export class SessionModal extends Modal {
             SVGEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
         } else if (item.type === "map") {
             MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+        } else if (item.type === "constellation") {
+            ConstellationEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
         } else if (item.type === "code") {
             import('./engines/code').then(m => {
                 m.CodeEngine.renderInModal(this.app, item.filePath, cardContainer, item, handleResult);
