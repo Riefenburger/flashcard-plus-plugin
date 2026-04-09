@@ -1370,30 +1370,8 @@ button.mod-ghost:hover {
     transform: translate(-50%, -50%);
 }
 
-/* ── Ghost input (mobile) — real <input> fixed at screen bottom ─────────
-   opacity:0.01 keeps it "visible" to iOS so the keyboard shows.
-   font-size:16px prevents iOS auto-zoom.
-   It sits right at the keyboard edge so iOS doesn't scroll/squish the card. */
-
-.gi-ghost-input {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 1px;
-    opacity: 0.01;
-    font-size: 16px;
-    border: none;
-    background: transparent;
-    outline: none;
-    z-index: 9998;
-    padding: 0;
-    pointer-events: none;
-}
-
 /* ── Answer overlay (mobile) — floating display above the keyboard ──────
-   Fixed positioning means iOS keeps it in the visual viewport (above the
-   keyboard) automatically when the keyboard appears. */
+   position:fixed so iOS keeps it in the visual viewport above the keyboard. */
 
 .gi-answer-overlay {
     position: fixed;
@@ -1409,6 +1387,15 @@ button.mod-ghost:hover {
     border: 1.5px solid var(--interactive-accent);
     border-radius: 14px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+    /* Don't intercept taps — let the ghost input above handle them */
+    pointer-events: none;
+}
+
+/* Re-enable pointer events on the submit button */
+.gi-submit-above-ghost {
+    pointer-events: auto;
+    position: relative;
+    z-index: 10002; /* above ghost */
 }
 
 .gi-answer-overlay-prompt {
@@ -1431,10 +1418,11 @@ button.mod-ghost:hover {
     padding: 6px 8px;
     background: var(--background-secondary);
     border-radius: 8px;
-    cursor: text;
     user-select: none;
     -webkit-user-select: none;
     min-width: 0;
+    /* pointer-events off so ghost above receives the tap */
+    pointer-events: none;
 }
 
 .gi-fake-field-text {
@@ -1461,6 +1449,31 @@ button.mod-ghost:hover {
 @keyframes gi-cursor-blink {
     0%, 100% { opacity: 1; }
     50%       { opacity: 0; }
+}
+
+/* ── Ghost input — physically covers the fake-field hit area ────────────
+   Sits on top of the overlay (higher z-index), nearly transparent.
+   User's finger directly hits this element → iOS opens keyboard immediately.
+   font-size:16px prevents iOS auto-zoom on focus. */
+
+.gi-ghost-input {
+    position: fixed;
+    /* Match overlay bottom + padding, leave room for submit button on right */
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 10px);
+    left: calc(12px + 14px + 35% + 8px);  /* overlay left + padding + prompt + gap */
+    right: calc(12px + 14px + 64px);       /* overlay right + padding + button width */
+    height: 36px;
+    z-index: 10001;  /* above overlay (9999), below submit button (10002) */
+    opacity: 0.01;   /* nearly invisible but iOS still registers taps */
+    font-size: 16px; /* prevents iOS auto-zoom */
+    border: none;
+    background: transparent;
+    outline: none;
+    pointer-events: auto; /* MUST be auto — user taps this directly */
+    -webkit-appearance: none;
+    padding: 0 4px;
+    color: transparent;
+    caret-color: transparent;
 }
 
 /* ── Incorrect extra info chips ──────────────────────────────────────── */

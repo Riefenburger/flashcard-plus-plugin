@@ -1,26 +1,26 @@
 import { Platform } from 'obsidian';
 
 export interface AnswerInputHandle {
-    /** Remove both the display element and ghost input from the DOM. */
     remove: () => void;
-    /** Focus the real input (call after setup). */
     focus: () => void;
 }
 
 /**
- * Creates an answer input for map / constellation cards.
+ * Answer input for map / constellation cards.
  *
- * Desktop  — appends a normal inline input bar to `container`.
+ * Desktop  — normal inline input bar appended to `container`.
  *
- * Mobile   — ghost input pattern:
- *   • A real <input> (position:fixed, bottom:0, opacity:0.01) is appended to
- *     document.body.  iOS sees it as "already at the keyboard edge", so it
- *     opens the keyboard without scrolling or squishing the card layout.
- *   • A floating overlay (position:fixed, above keyboard) is also on body,
- *     showing a fake typed-text display and a Submit button.
- *   • The card behind is completely unaffected by the keyboard.
+ * Mobile (iOS WKWebView) — ghost-over-fake pattern:
  *
- * In both cases `handle.remove()` cleans everything up.
+ *   The visible UI is a floating overlay (position:fixed) with a prompt label,
+ *   a fake-text-display div, and a Submit button.
+ *
+ *   On top of the fake-text-display (same fixed coordinates, higher z-index)
+ *   sits a nearly-transparent real <input>.  Because the user's finger DIRECTLY
+ *   hits the <input> element, iOS opens the keyboard immediately — no
+ *   programmatic focus() call required (which WKWebView blocks).
+ *
+ *   The overlay display mirrors the ghost's value via the `input` event.
  */
 export function createAnswerInput(
     container: HTMLElement,
@@ -28,8 +28,8 @@ export function createAnswerInput(
     onSubmit: (value: string) => void
 ): AnswerInputHandle {
 
+    // ── Desktop ──────────────────────────────────────────────────────────────
     if (!Platform.isMobile) {
-        // ── Desktop: plain inline bar appended to container ──────────────────
         const wrap = container.createDiv({ cls: 'gi-map-input-wrap' });
         wrap.createEl('span', { text: promptText, cls: 'gi-map-input-label' });
         const input = wrap.createEl('input', {
@@ -47,76 +47,64 @@ export function createAnswerInput(
         };
     }
 
-    // ── Mobile: ghost input + floating overlay ────────────────────────────
+    // ── Mobile: ghost-over-fake ───────────────────────────────────────────────
     //
-    // The ghost input sits at position:fixed; bottom:0 with opacity:0.01.
-    // When it gets focus iOS treats it as already at the keyboard's arrival
-    // edge, so it doesn't scroll the page or resize the card container.
+    // Layer order (bottom → top):
+    //   1. gi-answer-overlay   (z-index 9999) — visual background, prompt, fake field, button
+    //   2. gi-ghost-input      (z-index 10001) — covers the fake-field hit area, opacity 0.01
+    //   3. submit button       (z-index 10002) — on top so it's tappable despite ghost above it
     //
-    // The overlay is position:fixed just above the safe-area bottom so it
-    // floats above the keyboard naturally (iOS fixed elements follow the
-    // visual viewport when the keyboard is open).
-
-    const ghost = document.body.createEl('input', {
-        type: 'text',
-        cls: 'gi-ghost-input',
-        attr: {
-            autocomplete: 'off',
-            autocorrect:  'off',
-            autocapitalize: 'off',
-            spellcheck:   'false',
-            inputmode:    'text',
-        },
-    });
+    // The user taps what looks like the text field and is actually tapping the
+    // ghost input directly → iOS opens the keyboard without any focus() call.
 
     const overlay = document.body.createDiv({ cls: 'gi-answer-overlay' });
     overlay.createEl('span', { text: promptText, cls: 'gi-answer-overlay-prompt' });
 
-    const fakeField = overlay.createDiv({ cls: 'gi-fake-field' });
+    const fakeField       = overlay.createDiv({ cls: 'gi-fake-field' });
     const fakeText        = fakeField.createEl('span', { cls: 'gi-fake-field-text' });
     const fakeCursor      = fakeField.createEl('span', { cls: 'gi-fake-cursor' });
     const fakePlaceholder = fakeField.createEl('span', {
-        text: 'Tap here to type…',
+        text: 'Tap to type…',
         cls: 'gi-fake-field-placeholder'
     });
     fakeCursor.style.display = 'none';
 
-    const submitBtn = overlay.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
+    const submitBtn = overlay.createEl('button', {
+        text: '→',
+        cls: 'gi-map-submit-btn mod-cta gi-submit-above-ghost'
+    });
 
-    // Keep display in sync with ghost input value
+    // Ghost input — covers the fake-field area, nearly invisible, directly tappable
+    const ghost = document.body.createEl('input', {
+        type: 'text',
+        cls: 'gi-ghost-input',
+        attr: {
+            autocomplete:    'off',
+            autocorrect:     'off',
+            autocapitalize:  'none',
+            spellcheck:      'false',
+            inputmode:       'text',
+        },
+    });
+
+    // Mirror ghost value into the fake display
     const sync = () => {
         const val = ghost.value;
         fakeText.textContent = val;
-        if (val.length > 0) {
-            fakePlaceholder.style.display = 'none';
-            fakeCursor.style.display = 'inline-block';
-        } else {
-            fakePlaceholder.style.display = '';
-            fakeCursor.style.display = 'none';
-        }
+        fakePlaceholder.style.display  = val ? 'none' : '';
+        fakeCursor.style.display       = val ? 'inline-block' : 'none';
     };
     ghost.addEventListener('input', sync);
 
-    // Submit handlers
     const doSubmit = () => onSubmit(ghost.value);
-    submitBtn.onclick = doSubmit;
     ghost.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSubmit(); });
-
-    // Tapping fake field or overlay opens keyboard via programmatic focus.
-    // Must be in a touchend handler (direct user-gesture context) for iOS.
-    const openKeyboard = (e: Event) => {
-        if ((e.target as HTMLElement).tagName === 'BUTTON') return;
-        e.preventDefault();
-        ghost.focus();
-    };
-    overlay.addEventListener('touchend', openKeyboard);
-    overlay.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).tagName !== 'BUTTON') ghost.focus();
-    });
+    submitBtn.onclick = doSubmit;
 
     const cleanup = () => { ghost.remove(); overlay.remove(); };
     return {
         remove: cleanup,
-        focus: () => { setTimeout(() => ghost.focus(), 80); },
+        // focus() here is a best-effort fallback for non-iOS (Android, etc.)
+        // On iOS the user taps the ghost directly.
+        focus: () => { try { ghost.focus(); } catch { /* silent */ } },
     };
 }
