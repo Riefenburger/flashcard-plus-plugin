@@ -20,6 +20,8 @@ export default class GrandInventoryPlugin extends Plugin {
 
         // Ribbon icon — starts a study session
         this.addRibbonIcon('brain-circuit', 'Start GrandInventory Session', async () => {
+            // Always reload from disk so synced changes (e.g. from phone) are picked up.
+            await this.loadPluginData();
             const { cards: allCards, dict } = await VaultScanner.scan(this.app, "#grand-inventory");
             if (allCards.length === 0) {
                 new Notice("No cards found! Make sure your files have the #grand-inventory tag.");

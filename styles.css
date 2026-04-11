@@ -2767,14 +2767,17 @@ button.mod-ghost:hover {
     position: relative;
 }
 
-/* Month label sits above the column */
+/* Month label floats above its column via absolute positioning.
+   .gi-cal-col has position:relative so this anchors to the column top. */
 .gi-cal-month-label {
     font-size: 9px;
     color: var(--text-muted);
     position: absolute;
     top: 0;
     left: 0;
+    line-height: 14px;
     white-space: nowrap;
+    pointer-events: none;
 }
 
 .gi-cal-cell {

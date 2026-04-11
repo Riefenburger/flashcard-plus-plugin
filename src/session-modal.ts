@@ -717,7 +717,6 @@ export class SessionModal extends Modal {
         startDate.setDate(today.getDate() - todayDow - (WEEKS - 1) * 7);
 
         let prevMonth = -1;
-        const monthPositions: Array<{ label: string; col: number }> = [];
 
         for (let w = 0; w < WEEKS; w++) {
             const col = grid.createDiv({ cls: 'gi-cal-col' });
@@ -751,23 +750,17 @@ export class SessionModal extends Modal {
                 if (d === 0) {
                     const m = cellDate.getMonth();
                     if (m !== prevMonth) {
-                        monthPositions.push({
-                            label: cellDate.toLocaleString('default', { month: 'short' }),
-                            col: w,
+                        // Insert month label inside the column — .gi-cal-col has
+                        // position:relative so the absolute label anchors correctly.
+                        col.createEl('span', {
+                            text: cellDate.toLocaleString('default', { month: 'short' }),
+                            cls: 'gi-cal-month-label'
                         });
                         prevMonth = m;
                     }
                 }
             }
         }
-
-        // ── Month labels above the grid ────────────────────────────────────
-        const monthRow = wrap.createDiv({ cls: 'gi-cal-months' });
-        monthRow.style.paddingLeft = '22px'; // offset for day labels column
-        monthPositions.forEach(({ label, col }) => {
-            const span = monthRow.createEl('span', { text: label, cls: 'gi-cal-month-label' });
-            span.style.left = `${col * 12}px`;
-        });
 
         // ── Legend ─────────────────────────────────────────────────────────
         const legend = wrap.createDiv({ cls: 'gi-cal-legend' });
