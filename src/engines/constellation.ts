@@ -2,6 +2,7 @@ import { App, setIcon } from 'obsidian';
 import boundsGeoJSON from '../data/constellations.bounds.json';
 import linesGeoJSON from '../data/constellations.lines.json';
 import { BaseEngine } from './base-engine';
+import { addFullscreenButton } from '../utils/fullscreen';
 
 // stars.6.json has dots in its name so we use require
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -10,24 +11,34 @@ const starsGeoJSON: any = require('../data/stars.6.json');
 function toRad(d: number): number { return d * Math.PI / 180; }
 
 /**
- * Orthographic projection — inside-sphere / sky-view.
- * lon = RA×15°, lat = Dec°.
- * Negating x mirrors East↔West so East is LEFT, matching how the sky looks from Earth.
+ * Gnomonic (perspective) projection — inside-sphere / sky-view.
+ * Gives a "window into the sky" look matching star-atlas software.
+ *
+ * lon = RA in degrees, lat = Dec in degrees.
+ * scale = halfCanvasSize × zoom  — higher zoom means a narrower, magnified view.
+ * −x flips East↔West so East is LEFT, matching how the sky looks from Earth.
+ *
+ * Returns [screenX, screenY, cosc].
+ *   cosc ≤ 0 means the point is at or past 90 ° from the view centre — not visible.
  */
 function proj(
     lon: number, lat: number,
     cLon: number, cLat: number,
-    r: number, cx: number, cy: number
+    scale: number, cx: number, cy: number
 ): [number, number, number] {
     const φ  = toRad(lat),  λ  = toRad(lon);
     const φ0 = toRad(cLat), λ0 = toRad(cLon);
-    const dλ  = λ - λ0;
+    const Δλ = λ - λ0;
     const cosφ = Math.cos(φ), sinφ = Math.sin(φ);
     const cosφ0 = Math.cos(φ0), sinφ0 = Math.sin(φ0);
-    const x =  cosφ * Math.sin(dλ);
-    const y =  cosφ0 * sinφ - sinφ0 * cosφ * Math.cos(dλ);
-    const z =  sinφ0 * sinφ + cosφ0 * cosφ * Math.cos(dλ);
-    return [cx - x * r, cy - y * r, z]; // -x = inside-sphere (sky) convention
+
+    const cosc = sinφ0 * sinφ + cosφ0 * cosφ * Math.cos(Δλ);
+    if (cosc <= 0.001) return [cx, cy, -1]; // at / behind 90 ° horizon
+
+    const x = cosφ * Math.sin(Δλ) / cosc;
+    const y = (cosφ0 * sinφ - sinφ0 * cosφ * Math.cos(Δλ)) / cosc;
+
+    return [cx - x * scale, cy - y * scale, cosc]; // −x = east is left (sky view)
 }
 
 function centroidOf(feature: any): [number, number] {
@@ -61,33 +72,23 @@ function drawSky(
     canvas.height = H;
     const ctx = canvas.getContext('2d')!;
     const cx = W / 2, cy = H / 2;
-    // r is both the projection radius AND the sphere circle radius on screen.
-    // At zoom=1 the sphere fits the canvas exactly; at zoom>1 the sphere grows
-    // beyond the canvas edge and the canvas clips it — the same way zooming into
-    // a globe makes the ball get bigger and the rim disappear off-screen.
-    // Leave ~12% margin at zoom=1 so the sphere has visible padding and the
-    // user can clearly see it growing as they zoom in.
-    const baseR = Math.min(W, H) / 2 * 0.86;
-    const r     = baseR * zoom;
+    // Gnomonic scale: halfSize * factor / zoom.
+    // factor=1.5 → ~68° total FOV at zoom=1, similar to Stellarium default.
+    // Higher zoom → smaller scale → narrower FOV (more magnified).
+    const halfSize  = Math.min(W, H) / 2;
+    const baseScale = halfSize * 1.5;
+    const scale     = baseScale * zoom;
 
     const bounds = (boundsGeoJSON as any).features as any[];
     const lines  = (linesGeoJSON as any).features as any[];
     const stars  = starsGeoJSON.features as any[];
 
     const p = (lo: number, la: number) =>
-        proj(lo, la, viewLon, viewLat, r, cx, cy);
+        proj(lo, la, viewLon, viewLat, scale, cx, cy);
 
-    // ── Sky dome — fills the sphere circle (grows with zoom) ──────────────────
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    // ── Sky background — fills full canvas (no globe rim) ────────────────────
     ctx.fillStyle = '#060d1a';
-    ctx.fill();
-
-    // ── Clip everything to the sphere boundary ─────────────────────────────────
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.clip();
+    ctx.fillRect(0, 0, W, H);
 
     // ── Non-target boundary grid lines ────────────────────────────────────────
     for (const f of bounds) {
@@ -103,7 +104,8 @@ function drawSky(
                 ctx.beginPath();
                 let first = true;
                 for (const coord of ring) {
-                    const [sx, sy] = p(coord[0] ?? 0, coord[1] ?? 0);
+                    const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
+                    if (z < 0) { first = true; continue; }
                     if (first) { ctx.moveTo(sx, sy); first = false; }
                     else ctx.lineTo(sx, sy);
                 }
@@ -209,7 +211,8 @@ function drawSky(
                     ctx.beginPath();
                     let first = true;
                     for (const coord of ring) {
-                        const [sx, sy] = p(coord[0] ?? 0, coord[1] ?? 0);
+                        const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
+                        if (z < 0) { first = true; continue; }
                         if (first) { ctx.moveTo(sx, sy); first = false; }
                         else ctx.lineTo(sx, sy);
                     }
@@ -233,7 +236,7 @@ function drawSky(
 
     // ── Target constellation stars — bright gold pass (drawn on top of lines) ──
     // Size is proportional to the projection radius so they don't balloon at low zoom.
-    const conStarR = Math.max(1.8, r * 0.013); // ~2.2px at zoom=1 on a 400px canvas
+    const conStarR = Math.max(1.8, scale * 0.008); // ~2px at default scale
     const glowR = conStarR * 2.4;
     for (const [lo, la] of targetStarPoints) {
         const [sx, sy, z] = p(lo, la);
@@ -261,7 +264,7 @@ function drawSky(
 
     // ── Preview mode: name labels for included constellations ─────────────────
     if (labelMap.size > 0) {
-        const fontSize = Math.max(7, Math.round(r / 22));
+        const fontSize = Math.max(7, Math.round(scale / 35));
         ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -303,49 +306,41 @@ function drawSky(
         }
     }
 
-    ctx.restore(); // end clip
-
-    // ── Limb vignette + rim — follows sphere radius ───────────────────────────
-    // When zoomed in (r > canvas) the rim is off-screen naturally; when r ≤ baseR
-    // the rim ring is visible at the sphere edge.
-    ctx.save();
-    const grad = ctx.createRadialGradient(cx, cy, r * 0.82, cx, cy, r);
+    // ── Corner vignette for depth — subtle, no globe rim ─────────────────────
+    const grad = ctx.createRadialGradient(cx, cy, halfSize * 0.7, cx, cy, Math.hypot(W, H) / 2);
     grad.addColorStop(0, 'rgba(6,13,26,0)');
-    grad.addColorStop(1, 'rgba(3,7,16,0.72)');
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    grad.addColorStop(1, 'rgba(3,7,16,0.55)');
     ctx.fillStyle = grad;
-    ctx.fill();
-    // Rim only drawn when sphere fits in canvas (i.e. not zoomed in)
-    if (zoom <= 1.05) {
-        ctx.strokeStyle = 'rgba(40,70,130,0.55)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-    }
-    ctx.restore();
+    ctx.fillRect(0, 0, W, H);
 }
 
 /** Attach drag-to-rotate interaction to a canvas.
- *  Returns a cleanup function (call when the view is destroyed). */
+ *  Returns [cleanupFn, wasDragging].
+ *  wasDragging() returns true if the pointer moved > 4px since mousedown —
+ *  use it to suppress click-after-pan in easy mode. */
 function attachDrag(
     canvas: HTMLCanvasElement,
     getView: () => [number, number, number],  // [lon, lat, zoom]
     setView: (lon: number, lat: number, zoom: number) => void,
     redraw: () => void
-): () => void {
+): [() => void, () => boolean] {
     let dragging = false, lastX = 0, lastY = 0;
-    // Pinch-zoom state
+    let dragMoved = false;   // true once pointer moves > 4px during a press
     let lastPinchDist = 0;
 
-    const startDrag = (cx: number, cy: number) => { dragging = true; lastX = cx; lastY = cy; };
+    const startDrag = (cx: number, cy: number) => {
+        dragging = true; dragMoved = false; lastX = cx; lastY = cy;
+    };
     const moveDrag  = (cx: number, cy: number) => {
         if (!dragging) return;
         const dx = cx - lastX, dy = cy - lastY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true;
         lastX = cx; lastY = cy;
         const [lon, lat, zoom] = getView();
-        const rr = (Math.min(canvas.clientWidth, canvas.clientHeight) / 2 - 4) * zoom;
-        let newLon = lon + (dx / rr) * (180 / Math.PI);
-        const newLat = Math.max(-90, Math.min(90, lat + (dy / rr) * (180 / Math.PI)));
+        // Gnomonic sensitivity: 1 pixel = 1/(scale) radians converted to degrees
+        const scale = Math.min(canvas.clientWidth, canvas.clientHeight) / 2 * 1.5 * zoom;
+        let newLon = lon + (dx / scale) * (180 / Math.PI);
+        const newLat = Math.max(-90, Math.min(90, lat + (dy / scale) * (180 / Math.PI)));
         if (newLon >  180) newLon -= 360;
         if (newLon < -180) newLon += 360;
         setView(newLon, newLat, zoom);
@@ -400,13 +395,59 @@ function attachDrag(
     document.addEventListener('touchmove', onTouchMove, { passive: true });
     document.addEventListener('touchend',  endDrag);
 
-    return () => {
+    const cleanup = () => {
         canvas.removeEventListener('wheel', onWheel);
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup',   endDrag);
         document.removeEventListener('touchmove', onTouchMove);
         document.removeEventListener('touchend',  endDrag);
     };
+    const wasDragged = () => dragMoved;
+    return [cleanup, wasDragged];
+}
+
+/** 2-D ray-casting point-in-polygon (screen coordinates). */
+function pointInPolygon(px: number, py: number, vs: number[][]): boolean {
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        const xi = vs[i]![0]!, yi = vs[i]![1]!;
+        const xj = vs[j]![0]!, yj = vs[j]![1]!;
+        const intersect = ((yi > py) !== (yj > py))
+            && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+/**
+ * Returns the constellation featureId whose boundary contains the canvas point (px, py),
+ * or null if none found.
+ */
+function hitTestConstellation(
+    px: number, py: number,
+    viewLon: number, viewLat: number,
+    zoom: number, W: number, H: number
+): string | null {
+    const scale = Math.min(W, H) / 2 * 1.5 * zoom; // must match drawSky formula
+    const cx = W / 2, cy = H / 2;
+    const bounds = (boundsGeoJSON as any).features as any[];
+
+    for (const f of bounds) {
+        const geom = f.geometry;
+        const ringGroups: number[][][][] = geom.type === 'Polygon'
+            ? [geom.coordinates as number[][][]]
+            : geom.coordinates as number[][][][];
+        for (const rings of ringGroups) {
+            for (const ring of rings) {
+                const pts = ring.map((coord: number[]) => {
+                    const [sx, sy] = proj(coord[0] ?? 0, coord[1] ?? 0, viewLon, viewLat, scale, cx, cy);
+                    return [sx, sy];
+                });
+                if (pointInPolygon(px, py, pts)) return f.id as string;
+            }
+        }
+    }
+    return null;
 }
 
 export class ConstellationEngine {
@@ -460,8 +501,9 @@ export class ConstellationEngine {
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
+        addFullscreenButton(wrap, draw);
 
-        const cleanupDrag = attachDrag(
+        const [cleanupDrag] = attachDrag(
             canvas,
             () => [viewLon, viewLat, viewZoom],
             (lo, la, zo) => { viewLon = lo; viewLat = la; viewZoom = zo; },
@@ -501,24 +543,116 @@ export class ConstellationEngine {
     }
 
     /**
-     * Render a draggable globe preview for the inline inventory-card renderer.
-     * Shows all constellations in the deck labeled; no target highlighted.
+     * Easy mode: show "Click on: [name]" and let the user click the constellation boundary.
      */
-    static renderPreview(container: HTMLElement, cardData: any): void {
+    static renderEasyMode(
+        app: App,
+        filePath: string,
+        container: HTMLElement,
+        cardData: any,
+        cloze: any,
+        onComplete: (isCorrect: boolean, userAnswer: string) => void,
+        dict: Record<string, string> = {}
+    ): void {
+        container.empty();
+        container.addClass('gi-card-col');
+
+        const showLines: boolean = cardData.showLines !== false;
+        const featureId: string = cloze.featureId ?? '';
+        const correctName: string = Array.isArray(cloze.back) ? (cloze.back[0] ?? featureId) : featureId;
+
+        // Prompt at top
+        const promptWrap = container.createDiv({ cls: 'gi-easy-prompt' });
+        promptWrap.createEl('span', { text: 'Click on: ', cls: 'gi-easy-prompt-label' });
+        promptWrap.createEl('strong', { text: correctName, cls: 'gi-easy-prompt-name' });
+
+        const wrap = container.createDiv({ cls: 'gi-const-wrap' });
+        const canvas = wrap.createEl('canvas', { cls: 'gi-const-canvas' });
+
+        const bounds = (boundsGeoJSON as any).features as any[];
+        const target = bounds.find((f: any) => f.id === featureId);
+        const [cLon0, cLat0] = target ? centroidOf(target) : [0, 0];
+
+        let viewLon = cLon0, viewLat = cLat0, viewZoom = 1;
+        let answered = false;
+
+        const draw = () => drawSky(
+            canvas, viewLon, viewLat, viewZoom,
+            null, new Set<string>(), true, // always show lines in easy mode
+            false, '', new Map()
+        );
+
+        const ro = new ResizeObserver(() => draw());
+        ro.observe(wrap);
+        requestAnimationFrame(draw);
+        addFullscreenButton(wrap, draw);
+
+        const [cleanupDrag, wasDragged] = attachDrag(
+            canvas,
+            () => [viewLon, viewLat, viewZoom],
+            (lo, la, zo) => { viewLon = lo; viewLat = la; viewZoom = zo; },
+            draw
+        );
+
+        canvas.addEventListener('click', (e: MouseEvent) => {
+            if (answered || wasDragged()) return;
+            const rect = canvas.getBoundingClientRect();
+            const px = e.clientX - rect.left;
+            const py = e.clientY - rect.top;
+            const clickedId = hitTestConstellation(px, py, viewLon, viewLat, viewZoom, canvas.clientWidth, canvas.clientHeight);
+
+            answered = true;
+            const isCorrect = clickedId === featureId;
+            const userAnswer = clickedId ?? '';
+
+            // Always reveal the correct constellation on canvas
+            drawSky(canvas, viewLon, viewLat, viewZoom,
+                featureId, new Set<string>(), showLines,
+                true, isCorrect ? '' : correctName, new Map());
+
+            promptWrap.remove();
+
+            if (isCorrect) {
+                const badge = container.createDiv({ cls: 'gi-easy-badge gi-easy-correct' });
+                const iconEl = badge.createDiv();
+                setIcon(iconEl, 'check-circle');
+                badge.createEl('span', { text: 'Correct!' });
+                setTimeout(() => onComplete(true, correctName), 900);
+            } else {
+                const compareCard = container.createDiv({ cls: 'gi-incorrect-card' });
+                const hdr = compareCard.createDiv({ cls: 'gi-incorrect-hdr' });
+                const iconEl = hdr.createDiv({ cls: 'gi-incorrect-icon' });
+                setIcon(iconEl, 'x-circle');
+                hdr.createEl('span', { text: 'Incorrect', cls: 'gi-incorrect-title' });
+                BaseEngine.renderIncorrectContent(
+                    app, filePath, compareCard, cloze, userAnswer,
+                    (wasCorrect) => onComplete(wasCorrect, userAnswer),
+                    [], dict, cardData
+                );
+            }
+        });
+
+        (container as any)._leafletCleanup = () => { ro.disconnect(); cleanupDrag(); };
+    }
+
+    /**
+     * Render a draggable sky preview for the inline inventory-card renderer.
+     * Returns a panTo(featureId) function so name chips can fly the view to a constellation.
+     */
+    static renderPreview(container: HTMLElement, cardData: any): { panTo: (featureId: string) => void } {
         const bounds = (boundsGeoJSON as any).features as any[];
         const showLines: boolean = cardData.showLines !== false;
 
-        // Build label map: featureId → abbreviation (use abbr for space)
         const labelMap = new Map<string, string>();
         const highlightIds = new Set<string>();
         for (const cloze of (cardData.clozes || []) as any[]) {
             if (cloze.featureId) {
-                labelMap.set(cloze.featureId, cloze.featureId); // 3-letter abbr
+                labelMap.set(cloze.featureId, cloze.featureId);
                 highlightIds.add(cloze.featureId);
             }
         }
 
-        // Compute center: average centroid of all deck constellations
+        // Start centred on the average of all deck constellations
         let sumLon = 0, sumLat = 0, n = 0;
         for (const f of bounds) {
             if (!highlightIds.has(f.id)) continue;
@@ -540,12 +674,26 @@ export class ConstellationEngine {
         const ro = new ResizeObserver(() => draw());
         ro.observe(container);
         requestAnimationFrame(draw);
+        addFullscreenButton(container, draw);
 
-        attachDrag(
+        const [cleanupPreview] = attachDrag(
             canvas,
             () => [viewLon, viewLat, viewZoom],
             (lo, la, zo) => { viewLon = lo; viewLat = la; viewZoom = zo; },
             draw
         );
+        (container as any)._leafletCleanup = () => { ro.disconnect(); cleanupPreview(); };
+
+        const panTo = (featureId: string) => {
+            const f = bounds.find((b: any) => b.id === featureId);
+            if (!f) return;
+            const [lo, la] = centroidOf(f);
+            viewLon = lo;
+            viewLat = la;
+            viewZoom = 2.5; // zoom in nicely on the target
+            draw();
+        };
+
+        return { panTo };
     }
 }

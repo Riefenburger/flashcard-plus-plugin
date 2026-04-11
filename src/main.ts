@@ -9,6 +9,7 @@ import { DictionaryEditorModal, BrowseDictionaryModal } from './dictionary-edito
 import { GeoDeckModal } from './geo-deck';
 import { ConstellationDeckModal } from './constellation-deck';
 import { ConstellationEngine } from './engines/constellation';
+import { MapEngine } from './engines/map';
 import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
@@ -171,24 +172,35 @@ export default class GrandInventoryPlugin extends Plugin {
                 svgRow.appendText(` SVG: ${cardData.svgPath || "(no file)"}`);
                 info.createEl("div", { text: `Pins: ${cardData.clozes?.length || 0}` });
             } else if (cardData.type === "map") {
-                const info = el.createDiv({ attr: { style: "color:var(--text-muted); font-size:0.9em;" } });
-                const eraNames = Object.keys(cardData.timeline?.eras || {}).join(', ') || 'present';
-                const mapRow = info.createDiv({ attr: { style: 'display:flex; align-items:center; gap:4px;' } });
-                setIcon(mapRow, 'map');
-                mapRow.appendText(` Map · Eras: ${eraNames}`);
-                info.createEl("div", { text: `Clozes: ${cardData.clozes?.length || 0}` });
+                const previewWrap = el.createDiv({ cls: 'gi-const-wrap gi-map-preview-wrap' });
+                MapEngine.renderPreview(this.app, previewWrap, cardData).then(({ flyTo }) => {
+                    const clozes: any[] = cardData.clozes || [];
+                    if (clozes.length > 0) {
+                        const listWrap = el.createDiv({ cls: 'gi-const-name-list' });
+                        clozes.forEach((c: any, i: number) => {
+                            const chip = listWrap.createEl('span', {
+                                text: c.front || c.featureId || c.id,
+                                cls: 'gi-const-name-chip gi-const-name-chip--clickable'
+                            });
+                            chip.title = 'Click to pan to this location';
+                            chip.onclick = () => flyTo(i);
+                        });
+                    }
+                });
             } else if (cardData.type === "constellation") {
                 const previewWrap = el.createDiv({ cls: 'gi-const-wrap gi-const-preview' });
-                ConstellationEngine.renderPreview(previewWrap, cardData);
-                // Constellation list below the globe
+                const { panTo } = ConstellationEngine.renderPreview(previewWrap, cardData);
+                // Constellation list below — click to pan
                 const clozes: any[] = cardData.clozes || [];
                 if (clozes.length > 0) {
                     const listWrap = el.createDiv({ cls: 'gi-const-name-list' });
                     clozes.forEach((c: any) => {
-                        listWrap.createEl('span', {
+                        const chip = listWrap.createEl('span', {
                             text: c.featureName || c.featureId || c.id,
-                            cls: 'gi-const-name-chip'
+                            cls: 'gi-const-name-chip gi-const-name-chip--clickable'
                         });
+                        chip.title = 'Click to pan to this constellation';
+                        chip.onclick = () => panTo(c.featureId);
                     });
                 }
             } else if (cardData.type === "timeline") {

@@ -63,6 +63,8 @@ export class SessionModal extends Modal {
 
     /** Endless mode option: re-add wrong cards to queue (no SRS writes) */
     endlessReaddWrong = false;
+    /** Endless mode option: click-to-answer maps/constellations; multiple choice for text cards */
+    endlessEasyMode = false;
 
     reviewQueue: any[] = [];
     currentCardContainer: HTMLElement | null = null;
@@ -661,6 +663,14 @@ export class SessionModal extends Modal {
             );
 
         new Setting(container)
+            .setName('Easy Mode')
+            .setDesc('Maps & constellations: click the correct region instead of typing. Text cards: pick from multiple choice options.')
+            .addToggle(t => t
+                .setValue(this.endlessEasyMode)
+                .onChange(val => { this.endlessEasyMode = val; })
+            );
+
+        new Setting(container)
             .setName('Confidence Mode')
             .setDesc("If ON, correct answers are 'Good'. If OFF, they are 'Hard'.")
             .addToggle(t => t
@@ -1129,16 +1139,32 @@ export class SessionModal extends Modal {
             }
         };
 
+        const easyMode = !this.isDailySession && this.endlessEasyMode;
+
         if (item.type === "grid") {
-            GridEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            if (easyMode) {
+                GridEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict, this.allCards);
+            } else {
+                GridEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            }
         } else if (item.type === "audio") {
             AudioEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult);
         } else if (item.type === "svg") {
             SVGEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
         } else if (item.type === "map") {
-            MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            if (easyMode && item.currentCloze?.type === 'region') {
+                MapEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            } else if (easyMode) {
+                this.renderMultipleChoice(cardContainer, item, handleResult);
+            } else {
+                MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            }
         } else if (item.type === "constellation") {
-            ConstellationEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            if (easyMode) {
+                ConstellationEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            } else {
+                ConstellationEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+            }
         } else if (item.type === "code") {
             import('./engines/code').then(m => {
                 m.CodeEngine.renderInModal(this.app, item.filePath, cardContainer, item, handleResult);
@@ -1148,7 +1174,11 @@ export class SessionModal extends Modal {
                 m.TimelineEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
             });
         } else {
-            TraditionalEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult, item.dict);
+            if (easyMode) {
+                this.renderMultipleChoice(cardContainer, item, handleResult);
+            } else {
+                TraditionalEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult, item.dict);
+            }
         }
     }
 
@@ -1179,5 +1209,54 @@ export class SessionModal extends Modal {
             _isMasteryReview: true,
             _masteryDeck: deckName,
         });
+    }
+
+    /** Render a multiple-choice card for Easy Mode. */
+    private renderMultipleChoice(
+        container: HTMLElement,
+        item: any,
+        handleResult: (isCorrect: boolean, userAnswer: string) => void
+    ) {
+        const cloze = item.currentCloze;
+        const front: string = cloze.front || '';
+        const correct: string = Array.isArray(cloze.back) ? (cloze.back[0] ?? '') : (cloze.back ?? '');
+
+        // Gather distractor pool from same deck, then all decks if needed
+        const distractors: string[] = [];
+        const addFrom = (cards: any[]) => {
+            for (const card of cards) {
+                for (const c of (card.clozes || []) as any[]) {
+                    if (c.id === cloze.id) continue;
+                    const ans: string = Array.isArray(c.back) ? (c.back[0] ?? '') : (c.back ?? '');
+                    if (ans && ans !== correct && !distractors.includes(ans)) {
+                        distractors.push(ans);
+                        if (distractors.length >= 9) return;
+                    }
+                }
+                if (distractors.length >= 9) return;
+            }
+        };
+        addFrom(this.allCards.filter((c: any) => c.deck === item.deck));
+        if (distractors.length < 3) addFrom(this.allCards);
+
+        const shuffledDistractors = distractors.sort(() => Math.random() - 0.5).slice(0, 3);
+        const options = [correct, ...shuffledDistractors].sort(() => Math.random() - 0.5);
+
+        container.empty();
+        container.createEl('p', { text: front, cls: 'gi-mc-question' });
+
+        const choicesEl = container.createDiv({ cls: 'gi-mc-choices' });
+        for (const opt of options) {
+            const btn = choicesEl.createEl('button', { text: opt, cls: 'gi-mc-choice' });
+            btn.onclick = () => {
+                const isCorrect = opt.toLowerCase() === correct.toLowerCase();
+                (choicesEl.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).forEach(b => {
+                    b.disabled = true;
+                    if (b.textContent?.toLowerCase() === correct.toLowerCase()) b.addClass('gi-mc-correct');
+                    else if (b === btn && !isCorrect) b.addClass('gi-mc-wrong');
+                });
+                setTimeout(() => handleResult(isCorrect, opt), 700);
+            };
+        }
     }
 }

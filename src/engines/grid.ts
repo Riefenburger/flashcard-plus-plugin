@@ -240,6 +240,152 @@ export class GridEngine {
         };
     }
 
+    static renderEasyMode(
+        _app: App,
+        _filePath: string,
+        container: HTMLElement,
+        cardData: any,
+        cloze: any,
+        onComplete: (isCorrect: boolean, userAnswer: string) => void,
+        dict: Record<string, string> = {},
+        _allCards: any[] = []
+    ) {
+        const fmt = cardData.clozeFormat;
+        const ns: string | undefined = cloze.namespace;
+        const useFormat = !!(ns && fmt);
+
+        // The correct answer (element name / symbol)
+        const answersArr: string[] = useFormat
+            ? resolveFromFormat(Array.isArray(fmt.answers) ? fmt.answers : [], ns!, dict)
+            : (cloze.answers || []).map((a: string) => resolve(a, dict));
+        const correct = answersArr[0] ?? '';
+
+        // The value that the target cell normally shows (e.g. atomic number "2")
+        const targetDisplayValue: string = useFormat && fmt.value
+            ? (dict[`${ns}.${fmt.value}`] ?? correct)
+            : correct;
+
+        container.empty();
+
+        const cols: number = cardData.columns || 18;
+        const categories: Record<string, string> = cardData.categories || {};
+        const targetRow: number = cloze.coords?.[0] ?? -1;
+        const targetAIdx: number = cloze.coords?.[1] ?? -1;
+        const rows: any[][] = Array.isArray(cardData.data) ? cardData.data : [];
+
+        // Cells that are purely decorative mirrors — hidden in easy mode
+        const mirrorSet = new Set<string>();
+        (cardData.mirrors || []).forEach((m: any) => {
+            if (Array.isArray(m.coords)) mirrorSet.add(`${m.coords[0]}-${m.coords[1]}`);
+        });
+
+        // Prompt
+        container.createEl('h3', {
+            text: cardData.title || 'Find it',
+            attr: { style: 'margin-bottom: 4px; font-size: 1em;' }
+        });
+        container.createEl('p', {
+            text: `Click on: ${correct}`,
+            cls: 'gi-mc-question',
+            attr: { style: 'margin-top: 0;' }
+        });
+
+        const gridWrap = container.createDiv({ cls: 'gi-grid-review-grid-wrap' });
+        const gridEl = gridWrap.createDiv({ cls: 'gi-grid-review' });
+        gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+
+        const covered = new Set<number>();
+        const indexAt = (r: number, c: number) => r * cols + c;
+        let targetCellEl: HTMLElement | null = null;
+        let done = false;
+
+        rows.forEach((row: any[], rIdx: number) => {
+            if (!Array.isArray(row)) return;
+            let cIdx = 0;
+            let aIdx = 0;
+
+            row.forEach((cellStr: any) => {
+                while (cIdx < cols && covered.has(indexAt(rIdx, cIdx))) cIdx++;
+                if (cIdx >= cols) return;
+
+                const parts = String(cellStr).split(':');
+                const val = resolve(parts[0] ?? '', dict);
+                const cat = parts[1] || null;
+                const colSpan = Math.max(1, parseInt(parts[2] ?? '1') || 1);
+                const rowSpan = Math.max(1, parseInt(parts[3] ?? '1') || 1);
+                const isEmpty = val === '';
+                const isTarget = (rIdx === targetRow && aIdx === targetAIdx);
+                const isMirror = mirrorSet.has(`${rIdx}-${aIdx}`);
+
+                for (let dr = 0; dr < rowSpan; dr++) {
+                    for (let dc = 0; dc < colSpan; dc++) {
+                        if (dr === 0 && dc === 0) continue;
+                        covered.add(indexAt(rIdx + dr, cIdx + dc));
+                    }
+                }
+
+                const cell = gridEl.createDiv({ cls: 'gi-grid-review-cell' });
+                cell.style.gridColumn = `span ${colSpan}`;
+                cell.style.gridRow = `span ${rowSpan}`;
+
+                // Mirror cells: preserve grid layout but show nothing
+                if (isMirror) {
+                    cell.style.visibility = 'hidden';
+                    cIdx += colSpan;
+                    aIdx++;
+                    return;
+                }
+
+                // Apply category background CSS (flat rules only — no scoped sub-rules needed)
+                const catCssRaw = (cat && categories[cat]) ? categories[cat] : '';
+                if (catCssRaw) {
+                    const { flat } = splitFlatAndRules(catCssRaw);
+                    if (flat) {
+                        let applied = flat;
+                        if (!/\bcolor\s*:/.test(flat)) {
+                            const auto = contrastColor(flat);
+                            if (auto) applied += `; color: ${auto}`;
+                        }
+                        cell.setAttribute('style', (cell.getAttribute('style') || '') + '; ' + applied);
+                    }
+                }
+
+                if (isEmpty) {
+                    cell.addClass('gi-grid-review-cell--empty');
+                } else if (isTarget) {
+                    // Show the cell's real value — user needs to find and click it
+                    cell.setText(targetDisplayValue);
+                    cell.addClass('gi-grid-easy-clickable');
+                    targetCellEl = cell;
+                    cell.onclick = () => {
+                        if (done) return;
+                        done = true;
+                        onComplete(true, correct);
+                    };
+                } else {
+                    cell.setText(val);
+                    cell.addClass('gi-grid-easy-clickable');
+                    cell.onclick = () => {
+                        if (done) return;
+                        done = true;
+                        onComplete(false, val);
+                    };
+                }
+
+                cIdx += colSpan;
+                aIdx++;
+            });
+        });
+
+        // Scroll so the target cell is centred horizontally
+        if (targetCellEl) {
+            const tgt = targetCellEl as HTMLElement;
+            requestAnimationFrame(() => {
+                gridWrap.scrollLeft = tgt.offsetLeft - gridWrap.clientWidth / 2 + tgt.offsetWidth / 2;
+            });
+        }
+    }
+
     static renderIncorrectScreen(
         app: App,
         filePath: string,

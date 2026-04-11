@@ -1278,6 +1278,83 @@ button.mod-ghost:hover {
     white-space: nowrap;
 }
 
+.gi-const-name-chip--clickable {
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+
+.gi-const-name-chip--clickable:hover {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+/* ── Fullscreen button ───────────────────────────────────────────────────── */
+
+.gi-fullscreen-btn {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 1000;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 5px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+
+.gi-fullscreen-btn:hover {
+    opacity: 1;
+}
+
+.gi-fullscreen-btn svg {
+    width: 15px;
+    height: 15px;
+    color: #fff;
+}
+
+/* Ensure the canvas/map fills the whole screen when in fullscreen */
+.gi-const-wrap:fullscreen,
+.gi-map-container:fullscreen,
+.gi-map-preview-wrap:fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    aspect-ratio: unset !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    background: #060d1a;
+}
+
+.gi-map-container:fullscreen,
+.gi-map-preview-wrap:fullscreen {
+    background: #1a2030;
+}
+
+/* Map preview container in inline renderer */
+.gi-map-preview-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    max-height: 340px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.gi-map-preview-wrap .gi-map-container {
+    height: 100% !important;
+    min-height: unset !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+}
+
 /* Country name labels shown during authoring (labelsPane) */
 .gi-map-label {
     background: none;
@@ -2455,6 +2532,153 @@ button.mod-ghost:hover {
     height: 14px;
 }
 
+/* ── Easy mode prompt ────────────────────────────────────────────────────── */
+
+.gi-easy-prompt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.gi-easy-prompt-label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+.gi-easy-prompt-name {
+    font-size: 1em;
+    color: var(--text-normal);
+}
+
+/* Feedback badge overlay on easy mode cards */
+.gi-easy-badge {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9em;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.gi-easy-correct {
+    background: rgba(34, 197, 94, 0.25);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.gi-easy-wrong {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.gi-easy-badge svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ── Multiple choice ─────────────────────────────────────────────────────── */
+
+.gi-mc-question {
+    font-size: 1.1em;
+    font-weight: 600;
+    text-align: center;
+    margin: 16px 0 20px;
+    padding: 0 8px;
+    color: var(--text-normal);
+}
+
+.gi-mc-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 8px 16px;
+}
+
+.gi-mc-choice {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-align: left;
+    font-size: 0.95em;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.gi-mc-choice:hover:not(:disabled) {
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+}
+
+.gi-mc-choice.gi-mc-correct {
+    background: rgba(34, 197, 94, 0.18);
+    border-color: #22c55e;
+    color: #22c55e;
+}
+
+.gi-mc-choice.gi-mc-wrong {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+/* ── Grid easy mode (click-to-choose cells) ──────────────────────────────── */
+
+.gi-grid-easy-choices {
+    padding: 8px 4px 4px;
+}
+
+.gi-grid-easy-label {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    padding-left: 2px;
+}
+
+.gi-grid-easy-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.gi-grid-easy-cell {
+    min-width: 60px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+    user-select: none;
+}
+
+.gi-grid-easy-cell:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+
+/* Clickable cells in the live grid (easy mode) */
+.gi-grid-easy-clickable {
+    cursor: pointer;
+}
+
+.gi-grid-easy-clickable:hover {
+    filter: brightness(1.25);
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: -2px;
+}
+
 /* ── Mobile-keyboard-safe card layout ───────────────────────────────────── */
 
 /* Engine containers (map, constellation) use this to put input ABOVE the canvas */
@@ -2462,13 +2686,27 @@ button.mod-ghost:hover {
     display: flex;
     flex-direction: column;
     height: 100%;
+    position: relative;
 }
 
-/* Map and constellation fill remaining vertical space below the input */
-.gi-card-col .gi-map-container,
+/* Map and constellation fill remaining vertical space below the input.
+   min-height matches the standalone values so they never collapse if the
+   flex parent has no explicit height set (common in Obsidian modal layout). */
+.gi-card-col .gi-map-container {
+    flex: 1;
+    min-height: 300px;
+    height: auto;
+    margin: 0;
+}
+
 .gi-card-col .gi-const-wrap {
     flex: 1;
-    min-height: 0;
+    min-height: 300px;
+    height: auto;
+    margin: 0;
+    max-width: none;
+    max-height: none;
+    aspect-ratio: unset;
 }
 
 /* ── Contribution calendar ───────────────────────────────────────────────── */
