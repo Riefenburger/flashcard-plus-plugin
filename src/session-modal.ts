@@ -5,7 +5,7 @@ import { GridEngine } from 'engines/grid';
 import { TraditionalEngine } from './engines/traditional';
 import { AudioEngine } from './engines/audio';
 import { SVGEngine } from './engines/svg';
-import { MapEngine } from './engines/map';
+import { GlobeEngine } from './engines/globe';
 import { ConstellationEngine } from './engines/constellation';
 import GrandInventoryPlugin from './main';
 
@@ -1146,11 +1146,11 @@ export class SessionModal extends Modal {
             SVGEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
         } else if (item.type === "map") {
             if (easyMode && item.currentCloze?.type === 'region') {
-                MapEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+                GlobeEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
             } else if (easyMode) {
                 this.renderMultipleChoice(cardContainer, item, handleResult);
             } else {
-                MapEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+                GlobeEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
             }
         } else if (item.type === "constellation") {
             if (easyMode) {

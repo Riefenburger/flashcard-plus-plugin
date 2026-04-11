@@ -43,7 +43,7 @@ export class ConstellationDeckModal extends Modal {
         contentEl.empty();
         contentEl.addClass('gi-dict-modal');
         const modalEl = contentEl.closest('.modal');
-        if (modalEl) modalEl.addClass('grand-inventory-modal-window');
+        if (modalEl) modalEl.addClass('flashcard-modal-window');
 
         contentEl.createEl('h2', { text: 'Generate Constellation Deck', attr: { style: 'margin-bottom:4px;' } });
         contentEl.createEl('p', {
@@ -54,7 +54,7 @@ export class ConstellationDeckModal extends Modal {
         // Destination files
         this.taggedFiles = this.app.vault.getMarkdownFiles().filter(f => {
             const cache = this.app.metadataCache.getFileCache(f);
-            return cache ? getAllTags(cache)?.some(t => t.replace('#', '') === 'grand-inventory') : false;
+            return cache ? getAllTags(cache)?.some(t => t.replace('#', '') === 'flashcard') : false;
         });
         this.targetFile = this.taggedFiles[0] ?? null;
 
@@ -131,7 +131,7 @@ export class ConstellationDeckModal extends Modal {
             };
         } else {
             contentEl.createEl('p', {
-                text: '⚠ No #grand-inventory files found. Tag a note first.',
+                text: '⚠ No #flashcard files found. Tag a note first.',
                 attr: { style: 'color:var(--text-error); margin-bottom:12px;' }
             });
         }

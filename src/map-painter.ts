@@ -1,6 +1,6 @@
 import { App, Modal, Notice, TFile, setIcon } from 'obsidian';
 import * as L from 'leaflet';
-import worldGeoJSON from './data/world-110m.json';
+import worldGeoJSON from './data/world-50m.json';
 import { appendCardToFile } from './utils/append-card';
 
 // ── Types ──────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import { parseTOMLDict, serializeTOMLDict, DictData } from './utils/toml-dict';
  * Opens an editor for an `inventory-dict` TOML block.
  *
  * - If `targetFile` is provided, loads/saves that file's dict block.
- * - Otherwise scans all #grand-inventory files for the first existing dict block.
+ * - Otherwise scans all #flashcard files for the first existing dict block.
  *
  * Block format written/read:
  *   ```inventory-dict
@@ -33,7 +33,7 @@ export class DictionaryEditorModal extends Modal {
         contentEl.empty();
         contentEl.addClass('gi-dict-modal');
         const modalEl = contentEl.closest('.modal');
-        if (modalEl) modalEl.addClass('grand-inventory-modal-window');
+        if (modalEl) modalEl.addClass('flashcard-modal-window');
 
         contentEl.createEl('h2', { text: 'Flashcard Dictionary', attr: { style: 'margin-bottom: 4px;' } });
         contentEl.createEl('p', {
@@ -60,7 +60,7 @@ export class DictionaryEditorModal extends Modal {
         for (const file of files) {
             const cache = this.app.metadataCache.getFileCache(file);
             const tags = cache ? getAllTags(cache) : [];
-            const hasTag = tags?.some(t => t.replace('#', '') === 'grand-inventory');
+            const hasTag = tags?.some(t => t.replace('#', '') === 'flashcard');
             if (hasTag) this.taggedFiles.push(file);
         }
 
@@ -120,7 +120,7 @@ export class DictionaryEditorModal extends Modal {
 
         if (this.taggedFiles.length === 0) {
             el.createEl('p', {
-                text: '⚠ No files with #grand-inventory tag found. Tag a note first.',
+                text: '⚠ No files with #flashcard tag found. Tag a note first.',
                 attr: { style: 'color:var(--text-error);' }
             });
             return;
@@ -307,7 +307,7 @@ export class BrowseDictionaryModal extends Modal {
         contentEl.empty();
         contentEl.addClass('gi-dict-modal');
         const modalEl = contentEl.closest('.modal');
-        if (modalEl) modalEl.addClass('grand-inventory-modal-window');
+        if (modalEl) modalEl.addClass('flashcard-modal-window');
 
         contentEl.createEl('h2', { text: 'Dictionary Terms', attr: { style: 'margin-bottom:4px;' } });
 
@@ -317,7 +317,7 @@ export class BrowseDictionaryModal extends Modal {
         for (const file of files) {
             const cache = this.app.metadataCache.getFileCache(file);
             const tags = cache ? getAllTags(cache) : [];
-            const hasTag = tags?.some(t => t.replace('#', '') === 'grand-inventory');
+            const hasTag = tags?.some(t => t.replace('#', '') === 'flashcard');
             if (!hasTag) continue;
 
             const content = await this.app.vault.read(file);

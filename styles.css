@@ -1227,6 +1227,37 @@ button.mod-ghost:hover {
     margin: 8px 0;
 }
 
+/* World globe — orthographic canvas view */
+.gi-globe-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-width: 440px;
+    max-height: 440px;
+    margin: 8px auto;
+    background: #0d1d30;
+    border-radius: 6px;
+}
+
+.gi-globe-canvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: none;
+    display: block;
+}
+
+.gi-globe-canvas:active {
+    cursor: grabbing;
+}
+
+/* Inline preview — landscape ratio, wider than the quiz square */
+.gi-globe-preview {
+    aspect-ratio: 2 / 1;
+    max-width: 100%;
+    max-height: 300px;
+}
+
 /* Constellation globe — canvas-based sky view */
 .gi-const-wrap {
     position: relative;
@@ -1318,6 +1349,7 @@ button.mod-ghost:hover {
 }
 
 /* Ensure the canvas/map fills the whole screen when in fullscreen */
+.gi-globe-wrap:fullscreen,
 .gi-const-wrap:fullscreen,
 .gi-map-container:fullscreen,
 .gi-map-preview-wrap:fullscreen {
@@ -2186,6 +2218,12 @@ button.mod-ghost:hover {
         height: 48dvh !important;
     }
 
+    /* World globe — keep it square but cap at viewport height */
+    .gi-globe-wrap {
+        max-width: min(100%, 90dvh) !important;
+        max-height: 48dvh !important;
+    }
+
     /* Constellation globe — keep it square but cap at viewport height */
     .gi-const-wrap {
         max-width: min(100%, 90dvh) !important;
@@ -2697,6 +2735,16 @@ button.mod-ghost:hover {
     min-height: 300px;
     height: auto;
     margin: 0;
+}
+
+.gi-card-col .gi-globe-wrap {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 480px;
+    max-height: none;
+    aspect-ratio: 1 / 1;
+    align-self: center;
+    margin: 0 auto;
 }
 
 .gi-card-col .gi-const-wrap {

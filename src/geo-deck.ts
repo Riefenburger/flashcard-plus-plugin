@@ -1,5 +1,6 @@
 import { App, Modal, Notice, TFile, getAllTags } from 'obsidian';
-import worldGeoJSON from './data/world-110m.json';
+import worldGeoJSON from './data/world-50m.json';
+import geoFeaturesData from './data/geo-features.json';
 import { appendCardToFile } from './utils/append-card';
 
 const CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
@@ -12,6 +13,41 @@ const SUBREGIONS = [
 ];
 
 type QuestionType = 'name-country' | 'name-capital';
+
+interface PhysGeoFeature {
+    id: string;
+    category: string;
+    name: string;
+    altNames: string[];
+    lat: number;
+    lon: number;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+    sea:       'Seas & Gulfs',
+    lake:      'Lakes',
+    mountain:  'Mountain Ranges',
+    strait:    'Straits & Channels',
+    desert:    'Deserts',
+    plain:     'Plains & Grasslands',
+    river:     'Rivers',
+    volcano:   'Volcanoes',
+    peninsula: 'Peninsulas & Capes',
+};
+
+const CATEGORY_FRONTS: Record<string, string> = {
+    sea:       'Name this body of water',
+    lake:      'Name this lake',
+    mountain:  'Name this mountain range',
+    strait:    'Name this strait or channel',
+    desert:    'Name this desert',
+    plain:     'Name this plain or grassland',
+    river:     'Name this river',
+    volcano:   'Name this volcano',
+    peninsula: 'Name this peninsula or cape',
+};
+
+const ALL_PHYS_FEATURES: PhysGeoFeature[] = (geoFeaturesData as any).features;
 
 interface GeoFeature {
     name: string;       // e.g. "France"
@@ -68,6 +104,17 @@ const CAPITALS: Record<string, string> = {
     // extras
     SWK:'Mbabane', // Eswatini alias
     PSE:'Ramallah',XKX:'Pristina',ALA:'Mariehamn',
+    // Sovereign nations newly reachable in 50m data
+    VAT:'Vatican City',SYC:'Victoria',DMA:'Roseau',
+    // Notable territories with well-known administrative capitals
+    GRL:'Nuuk',FRO:'Tórshavn',
+    GUM:'Hagåtña',ASM:'Pago Pago',MNP:'Saipan',PRI:'San Juan',VIR:'Charlotte Amalie',
+    ABW:'Oranjestad',CUW:'Willemstad',SXM:'Philipsburg',
+    BLM:'Gustavia',MAF:'Marigot',SPM:'Saint-Pierre',
+    PYF:'Papeete',NCL:'Nouméa',WLF:'Mata-Utu',COK:'Avarua',NIU:'Alofi',NFK:'Kingston',
+    AIA:'The Valley',BMU:'Hamilton',CYM:'George Town',VGB:'Road Town',TCA:'Cockburn Town',MSR:'Brades',
+    GGY:'Saint Peter Port',JEY:'Saint Helier',IMN:'Douglas',
+    FLK:'Stanley',ESH:'El Aaiún',
 };
 
 function loadFeatures(): GeoFeature[] {
@@ -75,7 +122,7 @@ function loadFeatures(): GeoFeature[] {
     for (const f of (worldGeoJSON as any).features) {
         const p = f.properties;
         if (!p?.NAME || !p?.ADM0_A3) continue;
-        if (p.CONTINENT === 'Antarctica' || p.CONTINENT === 'Seven seas (open ocean)') continue;
+        if (p.ADM0_A3 === 'ATA') continue;
         // Skip territories/non-sovereign (HOMEPART = -99 means it is a territory)
         // Keep all for now — user can filter by region
         features.push({
@@ -97,6 +144,7 @@ export class GeoDeckModal extends Modal {
     private features: GeoFeature[] = [];
     private selectedRegion = 'World';
     private questionType: QuestionType = 'name-country';
+    private selectedCategories: Set<string> = new Set();
     private deck = 'World Geography';
     private title = '';
     private targetFile: TFile | null = null;
@@ -113,7 +161,7 @@ export class GeoDeckModal extends Modal {
         contentEl.empty();
         contentEl.addClass('gi-dict-modal');
         const modalEl = contentEl.closest('.modal');
-        if (modalEl) modalEl.addClass('grand-inventory-modal-window');
+        if (modalEl) modalEl.addClass('flashcard-modal-window');
 
         contentEl.createEl('h2', { text: 'Generate Geography Deck', attr: { style: 'margin-bottom:4px;' } });
         contentEl.createEl('p', {
@@ -124,7 +172,7 @@ export class GeoDeckModal extends Modal {
         // Load tagged files for destination picker
         this.taggedFiles = this.app.vault.getMarkdownFiles().filter(f => {
             const cache = this.app.metadataCache.getFileCache(f);
-            return cache ? getAllTags(cache)?.some(t => t.replace('#', '') === 'grand-inventory') : false;
+            return cache ? getAllTags(cache)?.some(t => t.replace('#', '') === 'flashcard') : false;
         });
         this.targetFile = this.taggedFiles[0] ?? null;
 
@@ -172,10 +220,50 @@ export class GeoDeckModal extends Modal {
             };
         } else {
             contentEl.createEl('p', {
-                text: '⚠ No #grand-inventory files found. Tag a note first.',
+                text: '⚠ No #flashcard files found. Tag a note first.',
                 attr: { style: 'color:var(--text-error); margin-bottom:12px;' }
             });
         }
+
+        // ── Geographic Features ──
+        const featSection = contentEl.createDiv({ attr: { style: 'margin-bottom:16px;' } });
+        featSection.createEl('label', {
+            text: 'Geographic Features',
+            attr: { style: 'display:block; font-size:0.8em; font-weight:600; margin-bottom:6px;' }
+        });
+
+        // Count features per category
+        const catCounts: Record<string, number> = {};
+        for (const f of ALL_PHYS_FEATURES) catCounts[f.category] = (catCounts[f.category] ?? 0) + 1;
+
+        const catGrid = featSection.createDiv({
+            attr: { style: 'display:grid; grid-template-columns:repeat(3,1fr); gap:4px 12px; margin-bottom:6px;' }
+        });
+
+        for (const cat of Object.keys(CATEGORY_LABELS)) {
+            const count = catCounts[cat] ?? 0;
+            const cell = catGrid.createDiv({ attr: { style: 'display:flex; align-items:center; gap:4px; font-size:0.85em;' } });
+            const cb = cell.createEl('input', { type: 'checkbox' });
+            cb.checked = this.selectedCategories.has(cat);
+            cb.onchange = () => {
+                if (cb.checked) this.selectedCategories.add(cat);
+                else this.selectedCategories.delete(cat);
+                this.updatePreview();
+            };
+            cell.appendText(`${CATEGORY_LABELS[cat]} (${count})`);
+        }
+
+        const catBtnRow = featSection.createDiv({ attr: { style: 'display:flex; gap:8px;' } });
+        catBtnRow.createEl('button', { text: 'Select all', cls: 'mod-ghost', attr: { style: 'font-size:0.8em;' } }).onclick = () => {
+            for (const cat of Object.keys(CATEGORY_LABELS)) this.selectedCategories.add(cat);
+            catGrid.querySelectorAll('input[type=checkbox]').forEach((el: Element) => (el as HTMLInputElement).checked = true);
+            this.updatePreview();
+        };
+        catBtnRow.createEl('button', { text: 'Clear all', cls: 'mod-ghost', attr: { style: 'font-size:0.8em;' } }).onclick = () => {
+            this.selectedCategories.clear();
+            catGrid.querySelectorAll('input[type=checkbox]').forEach((el: Element) => (el as HTMLInputElement).checked = false);
+            this.updatePreview();
+        };
 
         // ── Preview ──
         this.previewEl = contentEl.createDiv({
@@ -198,17 +286,39 @@ export class GeoDeckModal extends Modal {
         if (!this.previewEl) return;
         const ff = this.filteredFeatures();
         const withCapital = ff.filter(f => f.capital);
-        const count = this.questionType === 'name-capital' ? withCapital.length : ff.length;
+        const countryCount = this.questionType === 'name-capital' ? withCapital.length : ff.length;
         const skipped = this.questionType === 'name-capital' ? ff.length - withCapital.length : 0;
+        const featCount = ALL_PHYS_FEATURES.filter(f => this.selectedCategories.has(f.category)).length;
+        const total = countryCount + featCount;
+
         this.previewEl.empty();
-        this.previewEl.createEl('strong', { text: `${count} clozes` });
-        this.previewEl.appendText(` will be created`);
-        if (skipped > 0) this.previewEl.appendText(` (${skipped} skipped — no capital data)`);
+        this.previewEl.createEl('strong', { text: `${total} cloze${total !== 1 ? 's' : ''}` });
+        this.previewEl.appendText(' will be created');
+        if (countryCount > 0 && featCount > 0) {
+            this.previewEl.appendText(` (${countryCount} countries + ${featCount} features)`);
+        }
+        if (skipped > 0) this.previewEl.appendText(` · ${skipped} skipped — no capital data`);
 
         if (ff.length <= 20) {
             const list = ff.map(f => f.name).join(', ');
             this.previewEl.createEl('div', { text: list, attr: { style: 'color:var(--text-muted); margin-top:4px; font-size:0.9em;' } });
         }
+    }
+
+    private buildFeatureClozes(): any[] {
+        if (this.selectedCategories.size === 0) return [];
+        return ALL_PHYS_FEATURES
+            .filter(f => this.selectedCategories.has(f.category))
+            .map(f => ({
+                id: `geo-feat-${f.id}`,
+                type: 'point',
+                era: 'present',
+                lat: f.lat,
+                lng: f.lon,
+                featureName: f.name,
+                front: CATEGORY_FRONTS[f.category] ?? 'Name this feature',
+                back: f.altNames.length > 0 ? [f.name, ...f.altNames] : [f.name],
+            }));
     }
 
     private async generate() {
@@ -242,6 +352,8 @@ export class GeoDeckModal extends Modal {
             });
         });
 
+        clozes.push(...this.buildFeatureClozes());
+
         if (clozes.length === 0) {
             new Notice('No clozes to generate for this selection.');
             return;
@@ -261,7 +373,7 @@ export class GeoDeckModal extends Modal {
 
         const ok = await appendCardToFile(this.app, card, this.targetFile);
         if (ok) {
-            new Notice(`Generated ${clozes.length} clozes!`);
+            new Notice(`Generated ${clozes.length} cloze${clozes.length !== 1 ? 's' : ''}!`);
             this.close();
         }
     }

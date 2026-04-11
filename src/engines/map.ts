@@ -211,10 +211,10 @@ export class MapEngine {
 
         addFullscreenButton(mapDiv, () => map.invalidateSize());
 
-        // Load GeoJSON for 'present' era as base layer (cloze eras mixed in below)
+        // Load GeoJSON for 'present' era as base layer (borders only — deck countries get orange fill)
         const geoData = await MapEngine.loadGeoJSON(app, 'present');
         L.geoJSON(geoData as any, {
-            style: { fillColor: '#94a3b8', fillOpacity: 0.10, color: '#475569', weight: 0.7 },
+            style: { fillColor: 'transparent', fillOpacity: 0, color: '#475569', weight: 0.7 },
         }).addTo(map);
 
         const clozes: any[] = cardData.clozes || [];

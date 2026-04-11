@@ -3,7 +3,7 @@
 	"name": "Flashcard+",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Make custumizable flashcards in Obsidian",
+	"description": "Spaced repetition flashcards with grid, map, constellation, timeline, code, and audio engines",
 	"author": "Rief",
 	"authorUrl": "https://github.com/Riefenburger",
 	"isDesktopOnly": false

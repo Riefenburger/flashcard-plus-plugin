@@ -9,7 +9,7 @@ import { DictionaryEditorModal, BrowseDictionaryModal } from './dictionary-edito
 import { GeoDeckModal } from './geo-deck';
 import { ConstellationDeckModal } from './constellation-deck';
 import { ConstellationEngine } from './engines/constellation';
-import { MapEngine } from './engines/map';
+import { GlobeEngine } from './engines/globe';
 import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
@@ -22,9 +22,9 @@ export default class GrandInventoryPlugin extends Plugin {
         this.addRibbonIcon('brain-circuit', 'Start GrandInventory Session', async () => {
             // Always reload from disk so synced changes (e.g. from phone) are picked up.
             await this.loadPluginData();
-            const { cards: allCards, dict } = await VaultScanner.scan(this.app, "#grand-inventory");
+            const { cards: allCards, dict } = await VaultScanner.scan(this.app, "#flashcard");
             if (allCards.length === 0) {
-                new Notice("No cards found! Make sure your files have the #grand-inventory tag.");
+                new Notice("No cards found! Make sure your files have the #flashcard tag.");
                 return;
             }
             new SessionModal(this.app, this.pluginData, allCards, this, dict).open();
@@ -174,21 +174,20 @@ export default class GrandInventoryPlugin extends Plugin {
                 svgRow.appendText(` SVG: ${cardData.svgPath || "(no file)"}`);
                 info.createEl("div", { text: `Pins: ${cardData.clozes?.length || 0}` });
             } else if (cardData.type === "map") {
-                const previewWrap = el.createDiv({ cls: 'gi-const-wrap gi-map-preview-wrap' });
-                MapEngine.renderPreview(this.app, previewWrap, cardData).then(({ flyTo }) => {
-                    const clozes: any[] = cardData.clozes || [];
-                    if (clozes.length > 0) {
-                        const listWrap = el.createDiv({ cls: 'gi-const-name-list' });
-                        clozes.forEach((c: any, i: number) => {
-                            const chip = listWrap.createEl('span', {
-                                text: c.front || c.featureId || c.id,
-                                cls: 'gi-const-name-chip gi-const-name-chip--clickable'
-                            });
-                            chip.title = 'Click to pan to this location';
-                            chip.onclick = () => flyTo(i);
+                const previewWrap = el.createDiv({ cls: 'gi-globe-wrap gi-globe-preview' });
+                const { flyTo } = GlobeEngine.renderPreview(previewWrap, cardData);
+                const clozes: any[] = cardData.clozes || [];
+                if (clozes.length > 0) {
+                    const listWrap = el.createDiv({ cls: 'gi-const-name-list' });
+                    clozes.forEach((c: any, i: number) => {
+                        const chip = listWrap.createEl('span', {
+                            text: c.featureName || (Array.isArray(c.back) ? c.back[0] : null) || c.featureId || c.id,
+                            cls: 'gi-const-name-chip gi-const-name-chip--clickable'
                         });
-                    }
-                });
+                        chip.title = 'Click to pan to this location';
+                        chip.onclick = () => flyTo(i);
+                    });
+                }
             } else if (cardData.type === "constellation") {
                 const previewWrap = el.createDiv({ cls: 'gi-const-wrap gi-const-preview' });
                 const { panTo } = ConstellationEngine.renderPreview(previewWrap, cardData);

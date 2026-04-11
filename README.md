@@ -1,90 +1,98 @@
-# Obsidian Sample Plugin
+# Flashcard+
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Spaced repetition flashcards for Obsidian with specialized engines for grids, maps, star charts, timelines, code, and audio — all living inside your vault notes.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+---
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+## Features
 
-## First time developing plugins?
+- **Multiple card engines** — grid, map, constellation, timeline, SVG, code, audio, and traditional front/back
+- **Spaced repetition (SRS)** — SM-2-style scheduling tracks each card individually across devices
+- **Daily & Endless sessions** — daily mode uses SRS scheduling; endless mode lets you drill freely
+- **Easy mode** — click-to-answer variants for grid, map, and constellation cards
+- **Inline preview** — live interactive previews render inside your notes with clickable name chips that pan the view
+- **Fullscreen support** — expand map and constellation views to full screen during review
+- **Memory Matrix** — GitHub-style contribution calendar showing your review history
 
-Quick starting guide for new plugin devs:
+---
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Card Types
 
-## Releasing new releases
+### Traditional
+Standard front / back flashcards. Supports math (KaTeX), markdown, and custom CSS.
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+### Grid
+A fully rendered grid (e.g. periodic table, multiplication table) where the target cell is hidden. In Easy Mode the full grid is shown and you click the correct cell.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Map
+An interactive Leaflet map. Cards can target a **region** (click or identify a country/area) or a **point** (identify a city or landmark). Supports historical era layers. Easy Mode highlights regions for clicking.
 
-## Adding your plugin to the community plugin list
+### Constellation
+A gnomonic sky-projection canvas matching the inside-sphere view you see from Earth (like Stellarium). Cards ask you to name or click a constellation. Stick figure lines and star magnitudes are rendered. If you pan away from the answer, a green arrow guides you back.
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+### Timeline
+Place events on an interactive timeline. Cards hide a pin and ask you to identify when something happened.
 
-## How to use
+### SVG
+Annotate any SVG image with labeled pins. Cards hide a pin and ask you to identify the location.
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+### Code
+Syntax-highlighted code cards with hidden sections.
 
-## Manually installing the plugin
+### Audio
+Audio playback cards.
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+---
 
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+## Setup
 
-## Funding URL
+### 1. Tag your notes
 
-You can include funding URLs where people who use your plugin can financially support it.
+Add `#flashcard` to any note that contains card data. The plugin scans your entire vault for this tag each time you start a session.
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+### 2. Start a session
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
-```
+Click the **brain** ribbon icon (or use the command palette) to open Session Settings. Choose your decks, session type, and options, then click **Start**.
 
-If you have multiple URLs, you can also do:
+---
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
+## Sessions
 
-## API Documentation
+### Daily Session
+Pulls cards that are due today based on SRS intervals. New cards are introduced at a controlled rate per deck. Results are saved and affect future scheduling.
 
-See https://docs.obsidian.md
+### Endless Session
+Drill any selected decks without affecting SRS state. Options:
+- **Re-add wrong cards** — incorrect cards are reinserted a few positions ahead in the queue
+- **Easy Mode** — click-to-answer interface for grid, map, and constellation cards
+
+---
+
+## Inline Preview
+
+Add a code block referencing a card deck in any note to render a live interactive preview:
+
+- **Map cards** — shows a Leaflet map with all regions highlighted; click a name chip to fly the map to that location
+- **Constellation cards** — shows a draggable star chart; click a name chip to pan the view to that constellation
+
+---
+
+## Sync
+
+Plugin data (SRS state, session history) is stored in `.obsidian/plugins/flashcard-plus/data.json`. The plugin re-reads this file every time you open a session, so changes synced from another device are always picked up.
+
+Make sure your sync solution (Obsidian Sync, iCloud, Dropbox, etc.) is configured to include the `.obsidian` folder.
+
+---
+
+## Manual Installation
+
+1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](../../releases/latest).
+2. Copy them to `<your vault>/.obsidian/plugins/flashcard-plus/`.
+3. Enable **Flashcard+** in Obsidian → Settings → Community Plugins.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome.
