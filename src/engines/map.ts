@@ -15,14 +15,21 @@ export class MapEngine {
         dict: Record<string, string> = {}
     ): Promise<void> {
         container.empty();
+        container.addClass('gi-card-col');
 
-        // Question header
-        container.createEl('h3', {
-            text: cloze.front || 'Name this location',
-            attr: { style: 'text-align:center; margin-bottom:10px;' }
+        // ── Input bar (at top so keyboard doesn't cover it on mobile) ──────
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Name this location', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type answer…',
+            cls: 'gi-map-answer-input',
+            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
         });
+        const submitBtn = inputWrap.createEl('button', { cls: 'gi-map-submit-btn mod-cta' });
+        setIcon(submitBtn, 'arrow-right');
 
-        // Map container — explicit height, NOT affected by keyboard
+        // Map container fills remaining space below the input
         const mapDiv = container.createDiv({ cls: 'gi-map-container' });
 
         // Load GeoJSON for this cloze's era
@@ -67,17 +74,6 @@ export class MapEngine {
         }
 
         requestAnimationFrame(() => map.invalidateSize());
-
-        // ── Input ─────────────────────────────────────────────────────────────
-        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
-        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
-        const inputEl = inputWrap.createEl('input', {
-            type: 'text',
-            placeholder: 'Type answer…',
-            cls: 'gi-map-answer-input',
-            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
-        });
-        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
         const handleSubmit = (rawAnswer: string) => {
             inputWrap.remove();

@@ -19,9 +19,18 @@ export interface SessionPrefs {
     sessionGroups: Record<string, string[]>; // groupName → cloze IDs
 }
 
+export interface DailyRecord {
+    date: string;           // ISO date "YYYY-MM-DD"
+    reviewed: number;
+    correct: number;
+    newCardsAdded: number;
+    masteredGained: number;
+}
+
 export interface PluginData {
     cards: Record<string, ClozeState>;
     history: SessionRecord[];
+    dailyHistory?: DailyRecord[];  // per-day daily session records (for calendar)
     sessionPrefs?: SessionPrefs;
     lastDailyDate?: string;       // ISO date "YYYY-MM-DD" of last completed daily
     newCardsDate?: string;        // ISO date for resetting today's new card count

@@ -424,14 +424,22 @@ export class ConstellationEngine {
         dict: Record<string, string> = {}
     ): Promise<void> {
         container.empty();
+        container.addClass('gi-card-col');
 
         const showLines: boolean = cardData.showLines !== false;
         const featureId: string = cloze.featureId ?? '';
 
-        container.createEl('h3', {
-            text: cloze.front || 'Name this constellation',
-            attr: { style: 'text-align:center; margin-bottom:8px;' }
+        // ── Input bar (at top so keyboard doesn't cover it on mobile) ──────
+        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
+        inputWrap.createEl('span', { text: cloze.front || 'Name this constellation', cls: 'gi-map-input-label' });
+        const inputEl = inputWrap.createEl('input', {
+            type: 'text',
+            placeholder: 'Type constellation name…',
+            cls: 'gi-map-answer-input',
+            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
         });
+        const submitBtn = inputWrap.createEl('button', { cls: 'gi-map-submit-btn mod-cta' });
+        setIcon(submitBtn, 'arrow-right');
 
         const wrap = container.createDiv({ cls: 'gi-const-wrap' });
         const canvas = wrap.createEl('canvas', { cls: 'gi-const-canvas' });
@@ -459,17 +467,6 @@ export class ConstellationEngine {
             (lo, la, zo) => { viewLon = lo; viewLat = la; viewZoom = zo; },
             draw
         );
-
-        // ── Input ─────────────────────────────────────────────────────────────
-        const inputWrap = container.createDiv({ cls: 'gi-map-input-wrap' });
-        inputWrap.createEl('span', { text: cloze.front || 'Answer:', cls: 'gi-map-input-label' });
-        const inputEl = inputWrap.createEl('input', {
-            type: 'text',
-            placeholder: 'Type constellation name…',
-            cls: 'gi-map-answer-input',
-            attr: { autocomplete: 'off', autocorrect: 'off', spellcheck: 'false' },
-        });
-        const submitBtn = inputWrap.createEl('button', { text: '→', cls: 'gi-map-submit-btn mod-cta' });
 
         const handleSubmit = (rawAnswer: string) => {
             inputWrap.remove();

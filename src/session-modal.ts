@@ -1,5 +1,5 @@
 import { App, Modal, Setting, setIcon } from 'obsidian';
-import { PluginData, SessionRecord, SessionPrefs, SRSEngine, isDue, isMastered, todayISO } from './srs';
+import { PluginData, DailyRecord, SessionRecord, SessionPrefs, SRSEngine, isDue, isMastered, todayISO } from './srs';
 import { BaseEngine } from 'engines/base-engine';
 import { GridEngine } from 'engines/grid';
 import { TraditionalEngine } from './engines/traditional';
@@ -53,6 +53,7 @@ export class SessionModal extends Modal {
     activeMode: 'daily' | 'endless' = 'daily';
     private isDailySession = false;
     private dailyNewCardsReviewed = 0;
+    private dailyMasteredCount = 0;
 
     /** Per-deck new card allocations for the current daily session */
     newCardAllocations: Map<string, number> = new Map();
@@ -193,24 +194,6 @@ export class SessionModal extends Modal {
             });
         }
 
-        // ── Session History ────────────────────────────────────────────────
-        const history = Array.isArray(this.pluginData.history) ? this.pluginData.history : [];
-        if (history.length > 0) {
-            stats.createEl('h4', { text: 'Review History (last 30 sessions)', attr: { style: 'margin: 14px 0 6px;' } });
-            const recent = history.slice(-30);
-            const maxReviewed = Math.max(...recent.map(r => r.reviewed), 1);
-            const bars = stats.createDiv({ cls: 'gi-history-bars' });
-            recent.forEach(r => {
-                const col = bars.createDiv({ cls: 'gi-history-col' });
-                const pct = r.reviewed > 0 ? Math.round((r.correct / r.reviewed) * 100) : 0;
-                const heightPct = Math.max(4, Math.round((r.reviewed / maxReviewed) * 100));
-                const bar = col.createDiv({ cls: 'gi-history-bar' });
-                bar.style.height = `${heightPct}%`;
-                bar.style.background = `hsl(${pct * 1.2}, 60%, 50%)`;
-                bar.title = `${new Date(r.date).toLocaleDateString()} · ${r.reviewed} reviewed · ${pct}% correct`;
-            });
-        }
-
         // ── Mode Tabs ─────────────────────────────────────────────────────
         const tabBar = contentEl.createDiv({ cls: 'gi-mode-tabs' });
         const dailyTab = tabBar.createEl('button', { text: 'Daily', cls: 'gi-mode-tab' });
@@ -263,6 +246,9 @@ export class SessionModal extends Modal {
                 cls: 'gi-daily-stat gi-daily-stat-mastered'
             });
         }
+
+        // ── Contribution calendar ──────────────────────────────────────────
+        this.renderContributionCalendar(container);
 
         // ── New cards allocator ────────────────────────────────────────────
         const allocSection = container.createDiv({ cls: 'gi-alloc-section' });
@@ -389,6 +375,24 @@ export class SessionModal extends Modal {
     // ── Endless Tab ──────────────────────────────────────────────────────────
 
     private renderEndlessTab(container: HTMLElement) {
+        // ── Session History bar chart ──────────────────────────────────────
+        const history = Array.isArray(this.pluginData.history) ? this.pluginData.history : [];
+        if (history.length > 0) {
+            container.createEl('h4', { text: 'Review History (last 30 sessions)', attr: { style: 'margin: 0 0 6px;' } });
+            const recent = history.slice(-30);
+            const maxReviewed = Math.max(...recent.map(r => r.reviewed), 1);
+            const bars = container.createDiv({ cls: 'gi-history-bars' });
+            recent.forEach(r => {
+                const col = bars.createDiv({ cls: 'gi-history-col' });
+                const pct = r.reviewed > 0 ? Math.round((r.correct / r.reviewed) * 100) : 0;
+                const heightPct = Math.max(4, Math.round((r.reviewed / maxReviewed) * 100));
+                const bar = col.createDiv({ cls: 'gi-history-bar' });
+                bar.style.height = `${heightPct}%`;
+                bar.style.background = `hsl(${pct * 1.2}, 60%, 50%)`;
+                bar.title = `${new Date(r.date).toLocaleDateString()} · ${r.reviewed} reviewed · ${pct}% correct`;
+            });
+        }
+
         container.createEl('h4', { text: 'Decks', attr: { style: 'margin: 8px 0;' } });
 
         const deckHeaderRow = container.createDiv({ cls: 'gi-deck-header-row' });
@@ -678,6 +682,102 @@ export class SessionModal extends Modal {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    private renderContributionCalendar(container: HTMLElement) {
+        const WEEKS = 26;
+        const byDate = new Map<string, DailyRecord>();
+        (this.pluginData.dailyHistory ?? []).forEach(r => byDate.set(r.date, r));
+
+        const wrap = container.createDiv({ cls: 'gi-cal-wrap' });
+
+        // ── Day-of-week labels + week columns ──────────────────────────────
+        const gridWrap = wrap.createDiv({ cls: 'gi-cal-grid-wrap' });
+
+        const dayLabelCol = gridWrap.createDiv({ cls: 'gi-cal-day-labels' });
+        ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'].forEach(label => {
+            dayLabelCol.createEl('span', { text: label, cls: 'gi-cal-day-label' });
+        });
+
+        const grid = gridWrap.createDiv({ cls: 'gi-cal-grid' });
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        // Align to Monday: find the Monday of the current week, go back WEEKS weeks
+        const todayDow = (today.getDay() + 6) % 7; // 0=Mon … 6=Sun
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - todayDow - (WEEKS - 1) * 7);
+
+        let prevMonth = -1;
+        const monthPositions: Array<{ label: string; col: number }> = [];
+
+        for (let w = 0; w < WEEKS; w++) {
+            const col = grid.createDiv({ cls: 'gi-cal-col' });
+            for (let d = 0; d < 7; d++) {
+                const cell = col.createDiv({ cls: 'gi-cal-cell' });
+                const cellDate = new Date(startDate);
+                cellDate.setDate(startDate.getDate() + w * 7 + d);
+                if (cellDate > today) {
+                    cell.addClass('gi-cal-cell-future');
+                    continue;
+                }
+                const dateStr = cellDate.toISOString().slice(0, 10);
+                const rec = byDate.get(dateStr);
+                if (rec) {
+                    const intensity = Math.min(rec.reviewed, 20) / 20;
+                    const hue = rec.masteredGained > 0 ? 45 : 142;
+                    const sat = Math.round(55 + intensity * 30);
+                    const lum = Math.round(65 - intensity * 25);
+                    cell.style.background = `hsl(${hue}, ${sat}%, ${lum}%)`;
+                    cell.title = [
+                        dateStr,
+                        `${rec.reviewed} reviewed · ${rec.correct} correct`,
+                        rec.newCardsAdded > 0 ? `${rec.newCardsAdded} new cards` : '',
+                        rec.masteredGained > 0 ? `${rec.masteredGained} mastered` : '',
+                    ].filter(Boolean).join('\n');
+                } else {
+                    cell.addClass('gi-cal-cell-empty');
+                    cell.title = dateStr;
+                }
+
+                if (d === 0) {
+                    const m = cellDate.getMonth();
+                    if (m !== prevMonth) {
+                        monthPositions.push({
+                            label: cellDate.toLocaleString('default', { month: 'short' }),
+                            col: w,
+                        });
+                        prevMonth = m;
+                    }
+                }
+            }
+        }
+
+        // ── Month labels above the grid ────────────────────────────────────
+        const monthRow = wrap.createDiv({ cls: 'gi-cal-months' });
+        monthRow.style.paddingLeft = '22px'; // offset for day labels column
+        monthPositions.forEach(({ label, col }) => {
+            const span = monthRow.createEl('span', { text: label, cls: 'gi-cal-month-label' });
+            span.style.left = `${col * 12}px`;
+        });
+
+        // ── Legend ─────────────────────────────────────────────────────────
+        const legend = wrap.createDiv({ cls: 'gi-cal-legend' });
+        legend.createEl('span', { text: 'Less', cls: 'gi-cal-legend-label' });
+        [0, 0.25, 0.5, 0.75, 1].forEach(intensity => {
+            const swatch = legend.createDiv({ cls: 'gi-cal-swatch' });
+            if (intensity === 0) {
+                swatch.addClass('gi-cal-cell-empty');
+            } else {
+                const sat = Math.round(55 + intensity * 30);
+                const lum = Math.round(65 - intensity * 25);
+                swatch.style.background = `hsl(142, ${sat}%, ${lum}%)`;
+            }
+        });
+        legend.createEl('span', { text: 'More', cls: 'gi-cal-legend-label' });
+        const mastSwatch = legend.createDiv({ cls: 'gi-cal-swatch', attr: { style: 'background:hsl(45,75%,55%); margin-left:8px;' } });
+        mastSwatch.title = 'Day with mastery gained';
+        legend.createEl('span', { text: 'Mastery', cls: 'gi-cal-legend-label' });
+    }
+
     private getAvailableNewCards(deckName: string): number {
         return this.allCards
             .filter((c: any) => c.deck === deckName && c.type !== 'dictionary')
@@ -792,6 +892,7 @@ export class SessionModal extends Modal {
         this.sessionStart = Date.now();
         this.isDailySession = true;
         this.dailyNewCardsReviewed = 0;
+        this.dailyMasteredCount = 0;
 
         const today = todayISO();
         if (this.pluginData.newCardsDate !== today) {
@@ -871,6 +972,23 @@ export class SessionModal extends Modal {
             if (this.isDailySession) {
                 this.pluginData.newCardsSeenToday = (this.pluginData.newCardsSeenToday ?? 0) + this.dailyNewCardsReviewed;
                 this.pluginData.lastDailyDate = todayISO();
+
+                // Record to daily history (upsert today's entry)
+                const dailyRec: DailyRecord = {
+                    date: todayISO(),
+                    reviewed: this.sessionReviewed,
+                    correct: this.sessionCorrect,
+                    newCardsAdded: this.dailyNewCardsReviewed,
+                    masteredGained: this.dailyMasteredCount,
+                };
+                if (!Array.isArray(this.pluginData.dailyHistory)) this.pluginData.dailyHistory = [];
+                const existIdx = this.pluginData.dailyHistory.findIndex(r => r.date === dailyRec.date);
+                if (existIdx >= 0) this.pluginData.dailyHistory[existIdx] = dailyRec;
+                else this.pluginData.dailyHistory.push(dailyRec);
+                if (this.pluginData.dailyHistory.length > 400) {
+                    this.pluginData.dailyHistory.splice(0, this.pluginData.dailyHistory.length - 400);
+                }
+
                 this.isDailySession = false;
             }
 
@@ -981,6 +1099,10 @@ export class SessionModal extends Modal {
                     const newState = SRSEngine.processReview(prevState, true, this.isConfidentToggle);
                     const prevStreak = prevState?.consecutiveDailyCorrect ?? 0;
                     newState.consecutiveDailyCorrect = prevStreak + 1;
+                    // Detect newly mastered cards
+                    if (!isMastered(prevState) && isMastered(newState)) {
+                        this.dailyMasteredCount++;
+                    }
                     this.pluginData.cards[item.id] = newState;
                     this.plugin.savePluginData();
                 }

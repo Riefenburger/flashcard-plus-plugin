@@ -2454,3 +2454,120 @@ button.mod-ghost:hover {
     width: 14px;
     height: 14px;
 }
+
+/* ── Mobile-keyboard-safe card layout ───────────────────────────────────── */
+
+/* Engine containers (map, constellation) use this to put input ABOVE the canvas */
+.gi-card-col {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Map and constellation fill remaining vertical space below the input */
+.gi-card-col .gi-map-container,
+.gi-card-col .gi-const-wrap {
+    flex: 1;
+    min-height: 0;
+}
+
+/* ── Contribution calendar ───────────────────────────────────────────────── */
+
+.gi-cal-wrap {
+    margin-bottom: 12px;
+}
+
+.gi-cal-grid-wrap {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+}
+
+/* Left column: day-of-week labels */
+.gi-cal-day-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    padding-top: 18px; /* align with first cell row (leaves room for month labels) */
+    flex-shrink: 0;
+}
+
+.gi-cal-day-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    line-height: 11px;
+    height: 11px;
+    text-align: right;
+    padding-right: 2px;
+}
+
+/* Calendar grid: columns = weeks, rows = days */
+.gi-cal-grid {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+    overflow-x: auto;
+}
+
+.gi-cal-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: relative;
+}
+
+/* Month label sits above the column */
+.gi-cal-month-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    position: absolute;
+    top: 0;
+    left: 0;
+    white-space: nowrap;
+}
+
+.gi-cal-cell {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    margin-top: 16px; /* leave room for month label on first row */
+    cursor: default;
+}
+
+/* Only the first cell in each column needs top margin for the month label row */
+.gi-cal-col .gi-cal-cell:first-child {
+    margin-top: 16px;
+}
+.gi-cal-col .gi-cal-cell:not(:first-child) {
+    margin-top: 0;
+}
+
+.gi-cal-cell-empty {
+    background: var(--background-modifier-border);
+    opacity: 0.4;
+}
+
+.gi-cal-cell-future {
+    background: transparent;
+}
+
+/* Legend */
+.gi-cal-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+.gi-cal-legend-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.gi-cal-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    display: inline-block;
+}
