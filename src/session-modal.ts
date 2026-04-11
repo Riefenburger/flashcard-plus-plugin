@@ -1,5 +1,5 @@
-import { App, Modal, Setting } from 'obsidian';
-import { PluginData, SessionRecord, SessionPrefs, SRSEngine } from './srs';
+import { App, Modal, Setting, setIcon } from 'obsidian';
+import { PluginData, SessionRecord, SessionPrefs, SRSEngine, isDue, isMastered, todayISO } from './srs';
 import { BaseEngine } from 'engines/base-engine';
 import { GridEngine } from 'engines/grid';
 import { TraditionalEngine } from './engines/traditional';
@@ -21,7 +21,6 @@ function clozeLabel(card: any, cloze: any): string {
         const ans = Array.isArray(cloze.answers) ? cloze.answers[0] : null;
         return String(ans ?? cloze.id ?? '—');
     }
-    // For map/constellation the answer (featureName/featureId) is more descriptive than the generic front prompt
     if (card.type === 'constellation' || card.type === 'map' || card.type === 'svg') {
         return String(
             cloze.featureName || cloze.featureId
@@ -47,13 +46,22 @@ export class SessionModal extends Modal {
     availableBatches: Map<string, Set<string>> = new Map();
     selectedBatches: Set<string> = new Set();
 
-    /** Cloze IDs the user has manually unchecked */
     excludedClozeIds: Set<string> = new Set();
-
-    /** Named groups: groupName → Set of cloze IDs (dragged in by user) */
     sessionGroups: Map<string, Set<string>> = new Map();
-    /** Which group names are currently active (checked) */
     selectedGroups: Set<string> = new Set();
+
+    activeMode: 'daily' | 'endless' = 'daily';
+    private isDailySession = false;
+    private dailyNewCardsReviewed = 0;
+
+    /** Per-deck new card allocations for the current daily session */
+    newCardAllocations: Map<string, number> = new Map();
+    /** Decks whose allocation is manually locked */
+    lockedNewCardDecks: Set<string> = new Set();
+    private newCardAllocInit = false;
+
+    /** Endless mode option: re-add wrong cards to queue (no SRS writes) */
+    endlessReaddWrong = false;
 
     reviewQueue: any[] = [];
     currentCardContainer: HTMLElement | null = null;
@@ -79,7 +87,6 @@ export class SessionModal extends Modal {
             }
         });
 
-        // Restore saved prefs, defaulting to all-selected
         const prefs = pluginData.sessionPrefs;
         if (prefs) {
             const restoredDecks = (prefs.selectedDecks || []).filter(d => this.availableDecks.has(d));
@@ -91,7 +98,6 @@ export class SessionModal extends Modal {
             for (const [name, ids] of Object.entries(prefs.sessionGroups || {})) {
                 this.sessionGroups.set(name, new Set(ids));
             }
-            // Restore selected groups (only ones that still have members)
             this.selectedGroups = new Set(
                 [...this.sessionGroups.keys()].filter(g => (this.sessionGroups.get(g)?.size ?? 0) > 0)
             );
@@ -205,17 +211,194 @@ export class SessionModal extends Modal {
             });
         }
 
-        // ── Deck + Card Tree ───────────────────────────────────────────────
-        contentEl.createEl('h4', { text: 'Decks', attr: { style: 'margin: 16px 0 8px;' } });
+        // ── Mode Tabs ─────────────────────────────────────────────────────
+        const tabBar = contentEl.createDiv({ cls: 'gi-mode-tabs' });
+        const dailyTab = tabBar.createEl('button', { text: 'Daily', cls: 'gi-mode-tab' });
+        const endlessTab = tabBar.createEl('button', { text: 'Endless', cls: 'gi-mode-tab' });
 
-        const deckHeaderRow = contentEl.createDiv({ cls: 'gi-deck-header-row' });
+        const tabContent = contentEl.createDiv({ cls: 'gi-mode-tab-content' });
+
+        const activateTab = (mode: 'daily' | 'endless') => {
+            this.activeMode = mode;
+            dailyTab.toggleClass('gi-mode-tab-active', mode === 'daily');
+            endlessTab.toggleClass('gi-mode-tab-active', mode === 'endless');
+            tabContent.empty();
+            if (mode === 'daily') this.renderDailyTab(tabContent);
+            else this.renderEndlessTab(tabContent);
+        };
+
+        dailyTab.onclick = () => activateTab('daily');
+        endlessTab.onclick = () => activateTab('endless');
+        activateTab(this.activeMode);
+    }
+
+    // ── Daily Tab ────────────────────────────────────────────────────────────
+
+    private renderDailyTab(container: HTMLElement) {
+        // Init allocations once per modal open
+        if (!this.newCardAllocInit) {
+            this.newCardAllocInit = true;
+            this.initNewCardAllocations();
+        }
+
+        const dailyStats = this.countDailyStats();
+
+        // ── Completion badge ───────────────────────────────────────────────
+        if (this.pluginData.lastDailyDate === todayISO()) {
+            const badge = container.createDiv({ cls: 'gi-daily-complete-badge' });
+            const iconEl = badge.createEl('span', { cls: 'gi-badge-icon' });
+            setIcon(iconEl, 'circle-check');
+            badge.createEl('span', { text: 'Daily complete' });
+        }
+
+        // ── Stats row ──────────────────────────────────────────────────────
+        const statsRow = container.createDiv({ cls: 'gi-daily-stats-row' });
+        statsRow.createEl('span', { text: `${dailyStats.due} due`, cls: 'gi-daily-stat gi-daily-stat-due' });
+        statsRow.createEl('span', { text: '·', cls: 'gi-daily-stat-sep' });
+        statsRow.createEl('span', { text: `${dailyStats.newCards} new`, cls: 'gi-daily-stat' });
+        if (dailyStats.masteryDecks > 0) {
+            statsRow.createEl('span', { text: '·', cls: 'gi-daily-stat-sep' });
+            statsRow.createEl('span', {
+                text: `${dailyStats.masteryDecks} mastery card${dailyStats.masteryDecks > 1 ? 's' : ''}`,
+                cls: 'gi-daily-stat gi-daily-stat-mastered'
+            });
+        }
+
+        // ── New cards allocator ────────────────────────────────────────────
+        const allocSection = container.createDiv({ cls: 'gi-alloc-section' });
+
+        const allocHdr = allocSection.createDiv({ cls: 'gi-alloc-hdr' });
+        allocHdr.createEl('span', { text: 'New cards today', cls: 'gi-alloc-title' });
+
+        const capWrap = allocHdr.createDiv({ cls: 'gi-alloc-cap-wrap' });
+        capWrap.createEl('span', { text: 'Cap:', cls: 'gi-alloc-cap-label' });
+        const capInput = capWrap.createEl('input', {
+            type: 'number',
+            cls: 'gi-alloc-cap-input',
+            attr: { min: '0', value: String(this.pluginData.newCardsPerDay ?? 15) }
+        });
+        capInput.onchange = () => {
+            const n = parseInt(capInput.value);
+            if (!isNaN(n) && n >= 0) {
+                this.pluginData.newCardsPerDay = n;
+                this.plugin.savePluginData();
+                this.redistributeNewCards();
+                renderAllocRows();
+            }
+        };
+
+        const allocRows = allocSection.createDiv({ cls: 'gi-alloc-rows' });
+
+        const renderAllocRows = () => {
+            allocRows.empty();
+            const entries = [...this.newCardAllocations.entries()];
+            if (entries.length === 0) {
+                allocRows.createEl('p', {
+                    text: 'No new cards available in selected decks.',
+                    attr: { style: 'font-size:0.8em; color:var(--text-muted); margin:4px 0;' }
+                });
+                return;
+            }
+
+            for (const [deckName, allocated] of entries) {
+                const available = this.getAvailableNewCards(deckName);
+                if (available === 0) continue;
+                const isLocked = this.lockedNewCardDecks.has(deckName);
+
+                const row = allocRows.createDiv({ cls: 'gi-alloc-row' });
+                row.createDiv({ cls: 'gi-deck-row-swatch', attr: { style: `background:${deckColor(deckName)};` } });
+                row.createEl('span', { text: deckName, cls: 'gi-alloc-deck-name' });
+
+                const numInput = row.createEl('input', {
+                    type: 'number',
+                    cls: 'gi-alloc-num',
+                    attr: { min: '0', max: String(available), value: String(allocated) }
+                });
+                numInput.onchange = () => {
+                    const n = Math.max(0, Math.min(parseInt(numInput.value) || 0, available));
+                    numInput.value = String(n);
+                    this.newCardAllocations.set(deckName, n);
+                    this.lockedNewCardDecks.add(deckName);
+                    this.redistributeNewCards();
+                    renderAllocRows();
+                };
+
+                const lockBtn = row.createEl('button', {
+                    cls: `gi-lock-btn mod-ghost${isLocked ? ' gi-lock-btn-active' : ''}`,
+                    attr: { title: isLocked ? 'Unlock (auto-distribute)' : 'Lock at this value' }
+                });
+                setIcon(lockBtn, isLocked ? 'lock' : 'unlock');
+                lockBtn.onclick = () => {
+                    if (this.lockedNewCardDecks.has(deckName)) {
+                        this.lockedNewCardDecks.delete(deckName);
+                    } else {
+                        this.lockedNewCardDecks.add(deckName);
+                    }
+                    this.redistributeNewCards();
+                    renderAllocRows();
+                };
+
+                row.createEl('span', { text: `(${available} avail)`, cls: 'gi-alloc-avail' });
+            }
+
+            const totalNew = [...this.newCardAllocations.values()].reduce((a, b) => a + b, 0);
+            const totalRow = allocRows.createDiv({ cls: 'gi-alloc-total' });
+            totalRow.createEl('span', { text: `${totalNew} new  ·  ${dailyStats.due} due  ·  ${dailyStats.masteryDecks} mastery` });
+        };
+
+        renderAllocRows();
+
+        // ── Daily settings (collapsible) ───────────────────────────────────
+        const settingsWrap = container.createDiv({ cls: 'gi-daily-settings-wrap' });
+        const settingsHdr = settingsWrap.createDiv({ cls: 'gi-daily-settings-hdr' });
+        const toggleIcon = settingsHdr.createEl('span', { cls: 'gi-deck-tree-toggle' });
+        setIcon(toggleIcon, 'chevron-right');
+        settingsHdr.createEl('span', { text: 'Daily settings', attr: { style: 'font-size:0.85em; color:var(--text-muted);' } });
+        const settingsBody = settingsWrap.createDiv({ cls: 'gi-daily-settings-body' });
+        settingsBody.style.display = 'none';
+
+        settingsHdr.onclick = () => {
+            const open = settingsBody.style.display !== 'none';
+            settingsBody.style.display = open ? 'none' : 'block';
+            setIcon(toggleIcon, open ? 'chevron-right' : 'chevron-down');
+        };
+
+        new Setting(settingsBody)
+            .setName('Confidence Mode')
+            .setDesc("If ON, correct answers are 'Good'. If OFF, they are 'Hard'.")
+            .addToggle(t => t
+                .setValue(this.isConfidentToggle)
+                .onChange(val => { this.isConfidentToggle = val; })
+            );
+
+        // ── Start button ───────────────────────────────────────────────────
+        const totalToReview = dailyStats.due + [...this.newCardAllocations.values()].reduce((a, b) => a + b, 0) + dailyStats.masteryDecks;
+        const startBtn = container.createEl('button', {
+            text: totalToReview === 0 ? 'No cards due today' : 'Start Daily',
+            cls: 'mod-cta',
+            attr: { style: 'width:100%; margin-top:16px;' }
+        });
+        if (totalToReview === 0) startBtn.disabled = true;
+        startBtn.onclick = () => {
+            this.savePrefs();
+            this.buildDailyQueue();
+            this.renderReviewLoop();
+        };
+    }
+
+    // ── Endless Tab ──────────────────────────────────────────────────────────
+
+    private renderEndlessTab(container: HTMLElement) {
+        container.createEl('h4', { text: 'Decks', attr: { style: 'margin: 8px 0;' } });
+
+        const deckHeaderRow = container.createDiv({ cls: 'gi-deck-header-row' });
         const searchInput = deckHeaderRow.createEl('input', {
             type: 'text', placeholder: 'Filter decks…', cls: 'gi-deck-search'
         });
         const selectAllBtn = deckHeaderRow.createEl('button', { text: 'All', cls: 'mod-ghost' });
         const clearBtn = deckHeaderRow.createEl('button', { text: 'None', cls: 'mod-ghost' });
 
-        const deckTree = contentEl.createDiv({ cls: 'gi-deck-tree' });
+        const deckTree = container.createDiv({ cls: 'gi-deck-tree' });
 
         const renderDecks = (filter = '') => {
             deckTree.empty();
@@ -231,7 +414,8 @@ export class SessionModal extends Modal {
                     const deckItem = deckTree.createDiv({ cls: 'gi-deck-tree-item' });
                     const deckHeader = deckItem.createDiv({ cls: 'gi-deck-tree-header' });
 
-                    const expandToggle = deckHeader.createEl('span', { cls: 'gi-deck-tree-toggle', text: '▶' });
+                    const expandToggle = deckHeader.createEl('span', { cls: 'gi-deck-tree-toggle' });
+                    setIcon(expandToggle, 'chevron-right');
                     const deckCb = deckHeader.createEl('input', { type: 'checkbox' });
                     deckCb.id = `gi-deck-cb-${deckName}`;
                     deckCb.checked = this.selectedDecks.has(deckName);
@@ -243,7 +427,6 @@ export class SessionModal extends Modal {
                     const subList = deckItem.createDiv({ cls: 'gi-deck-tree-batches' });
                     subList.style.display = 'none';
 
-                    /** Add a draggable card row with a checkbox */
                     const addCardRow = (parent: HTMLElement, card: any, cloze: any) => {
                         if (!cloze.id) return;
                         const label = clozeLabel(card, cloze);
@@ -309,7 +492,7 @@ export class SessionModal extends Modal {
                     const toggleExpand = () => {
                         const isOpen = subList.style.display !== 'none';
                         subList.style.display = isOpen ? 'none' : 'block';
-                        expandToggle.textContent = isOpen ? '▶' : '▼';
+                        setIcon(expandToggle, isOpen ? 'chevron-right' : 'chevron-down');
                     };
                     expandToggle.onclick = (e) => { e.stopPropagation(); toggleExpand(); };
                     deckHeader.onclick = (e) => {
@@ -350,12 +533,12 @@ export class SessionModal extends Modal {
             renderDecks(searchInput.value);
         };
 
-        // ── Groups (drag cards from deck tree into named groups) ───────────
-        const groupsHdr = contentEl.createDiv({ cls: 'gi-deck-header-row', attr: { style: 'margin-top:16px;' } });
+        // ── Groups ────────────────────────────────────────────────────────
+        const groupsHdr = container.createDiv({ cls: 'gi-deck-header-row', attr: { style: 'margin-top:16px;' } });
         groupsHdr.createEl('h4', { text: 'Groups', attr: { style: 'margin:0; flex:1; font-size:0.9em;' } });
         const newGroupBtn = groupsHdr.createEl('button', { text: '+ New Group', cls: 'mod-ghost' });
 
-        const groupList = contentEl.createDiv({ cls: 'gi-group-list' });
+        const groupList = container.createDiv({ cls: 'gi-group-list' });
 
         const renderGroups = () => {
             groupList.empty();
@@ -369,7 +552,6 @@ export class SessionModal extends Modal {
             for (const [groupName, clozeIds] of this.sessionGroups) {
                 const groupItem = groupList.createDiv({ cls: 'gi-group-item' });
 
-                // Drop zone behaviour
                 groupItem.ondragover = (e) => { e.preventDefault(); groupItem.addClass('gi-group-drop-hover'); };
                 groupItem.ondragleave = () => groupItem.removeClass('gi-group-drop-hover');
                 groupItem.ondrop = (e) => {
@@ -380,7 +562,8 @@ export class SessionModal extends Modal {
                 };
 
                 const groupHdr = groupItem.createDiv({ cls: 'gi-group-header' });
-                const expandToggle = groupHdr.createEl('span', { cls: 'gi-deck-tree-toggle', text: '▶' });
+                const expandToggle = groupHdr.createEl('span', { cls: 'gi-deck-tree-toggle' });
+                setIcon(expandToggle, 'chevron-right');
                 const groupCb = groupHdr.createEl('input', { type: 'checkbox' });
                 groupCb.checked = this.selectedGroups.has(groupName);
                 groupCb.onchange = () => {
@@ -390,7 +573,8 @@ export class SessionModal extends Modal {
                 };
                 groupHdr.createEl('span', { text: groupName, cls: 'gi-group-name' });
                 groupHdr.createEl('span', { text: String(clozeIds.size), cls: 'gi-deck-count' });
-                const delBtn = groupHdr.createEl('button', { text: '✕', cls: 'mod-ghost gi-group-delete-btn' });
+                const delBtn = groupHdr.createEl('button', { cls: 'mod-ghost gi-group-delete-btn' });
+                setIcon(delBtn, 'x');
                 delBtn.onclick = (e) => {
                     e.stopPropagation();
                     this.sessionGroups.delete(groupName);
@@ -399,7 +583,6 @@ export class SessionModal extends Modal {
                     renderGroups();
                 };
 
-                // Expandable card list inside the group
                 const cardList = groupItem.createDiv({ cls: 'gi-deck-tree-batches' });
                 cardList.style.display = 'none';
 
@@ -413,7 +596,8 @@ export class SessionModal extends Modal {
                         }
                         const row = cardList.createDiv({ cls: 'gi-deck-tree-card' });
                         row.createEl('span', { text: foundLabel, cls: 'gi-deck-tree-card-text' });
-                        const removeBtn = row.createEl('button', { text: '✕', cls: 'mod-ghost gi-group-delete-btn' });
+                        const removeBtn = row.createEl('button', { cls: 'mod-ghost gi-group-delete-btn' });
+                        setIcon(removeBtn, 'x');
                         removeBtn.style.marginLeft = 'auto';
                         removeBtn.onclick = () => { clozeIds.delete(clozeId); this.savePrefs(); renderGroupCards(); };
                     }
@@ -423,7 +607,7 @@ export class SessionModal extends Modal {
                 const toggleGroupExpand = () => {
                     const open = cardList.style.display !== 'none';
                     cardList.style.display = open ? 'none' : 'block';
-                    expandToggle.textContent = open ? '▶' : '▼';
+                    setIcon(expandToggle, open ? 'chevron-right' : 'chevron-down');
                 };
                 expandToggle.onclick = (e) => { e.stopPropagation(); toggleGroupExpand(); };
                 groupHdr.onclick = (e) => {
@@ -440,8 +624,10 @@ export class SessionModal extends Modal {
             const nameInput = nameWrap.createEl('input', {
                 type: 'text', placeholder: 'Group name…', cls: 'gi-group-new-input'
             });
-            const confirmBtn = nameWrap.createEl('button', { text: '✓', cls: 'mod-cta' });
-            const cancelBtn = nameWrap.createEl('button', { text: '✕', cls: 'mod-ghost' });
+            const confirmBtn = nameWrap.createEl('button', { cls: 'mod-cta gi-icon-btn' });
+            setIcon(confirmBtn, 'check');
+            const cancelBtn = nameWrap.createEl('button', { cls: 'mod-ghost gi-icon-btn' });
+            setIcon(cancelBtn, 'x');
             nameInput.focus();
 
             const confirm = () => {
@@ -461,18 +647,25 @@ export class SessionModal extends Modal {
             };
         };
 
-        // ── Confidence Toggle ──────────────────────────────────────────────
-        new Setting(contentEl)
-            .setName("Confidence Mode")
+        // ── Endless options ────────────────────────────────────────────────
+        new Setting(container)
+            .setName('Re-add wrong cards')
+            .setDesc('Wrong answers are put back into the queue until correct. No SRS changes are saved in Endless mode.')
+            .addToggle(t => t
+                .setValue(this.endlessReaddWrong)
+                .onChange(val => { this.endlessReaddWrong = val; })
+            );
+
+        new Setting(container)
+            .setName('Confidence Mode')
             .setDesc("If ON, correct answers are 'Good'. If OFF, they are 'Hard'.")
             .addToggle(t => t
                 .setValue(this.isConfidentToggle)
                 .onChange(val => { this.isConfidentToggle = val; })
             );
 
-        // ── Start Button ───────────────────────────────────────────────────
-        const startBtn = contentEl.createEl("button", {
-            text: "Start Session",
+        const startBtn = container.createEl("button", {
+            text: "Start Endless",
             cls: "mod-cta",
             attr: { style: "width: 100%; margin-top: 20px;" }
         });
@@ -483,13 +676,86 @@ export class SessionModal extends Modal {
         };
     }
 
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private getAvailableNewCards(deckName: string): number {
+        return this.allCards
+            .filter((c: any) => c.deck === deckName && c.type !== 'dictionary')
+            .flatMap((c: any) => c.clozes || [])
+            .filter((cloze: any) =>
+                cloze.id &&
+                !this.excludedClozeIds.has(cloze.id) &&
+                (!this.pluginData.cards[cloze.id] || (this.pluginData.cards[cloze.id]?.interval ?? 0) === 0) &&
+                !isMastered(this.pluginData.cards[cloze.id])
+            ).length;
+    }
+
+    private initNewCardAllocations() {
+        this.newCardAllocations.clear();
+        this.lockedNewCardDecks.clear();
+        const decksWithNew = [...this.selectedDecks].filter(d => this.getAvailableNewCards(d) > 0);
+        decksWithNew.forEach(d => this.newCardAllocations.set(d, 0));
+        this.redistributeNewCards();
+    }
+
+    private redistributeNewCards() {
+        const cap = this.pluginData.newCardsPerDay ?? 15;
+        const lockedSum = [...this.lockedNewCardDecks]
+            .filter(d => this.newCardAllocations.has(d))
+            .reduce((s, d) => s + (this.newCardAllocations.get(d) ?? 0), 0);
+        const remaining = Math.max(0, cap - lockedSum);
+
+        const freeDecks = [...this.newCardAllocations.keys()]
+            .filter(d => !this.lockedNewCardDecks.has(d));
+        if (freeDecks.length === 0) return;
+
+        const base = Math.floor(remaining / freeDecks.length);
+        const extra = remaining % freeDecks.length;
+        freeDecks.forEach((d, i) => {
+            const available = this.getAvailableNewCards(d);
+            this.newCardAllocations.set(d, Math.min(base + (i < extra ? 1 : 0), available));
+        });
+    }
+
+    private countDailyStats(): { due: number; newCards: number; mastered: number; masteryDecks: number } {
+        let due = 0, mastered = 0;
+        const decksWithMastered = new Set<string>();
+
+        const filtered = this.allCards.filter(c => {
+            if (c.type === 'dictionary' || !this.selectedDecks.has(c.deck)) return false;
+            if (c.batch) return this.selectedBatches.has(`${c.deck}::${c.batch}`);
+            return true;
+        });
+
+        filtered.forEach(card => {
+            (card.clozes || []).forEach((cloze: any) => {
+                if (!cloze.id || this.excludedClozeIds.has(cloze.id)) return;
+                const state = this.pluginData.cards[cloze.id];
+                if (isMastered(state)) {
+                    mastered++;
+                    decksWithMastered.add(card.deck);
+                    return;
+                }
+                if (state && state.interval > 0 && isDue(state)) {
+                    due++;
+                }
+            });
+        });
+
+        const newCards = [...this.newCardAllocations.values()].reduce((a, b) => a + b, 0);
+        return { due, newCards, mastered, masteryDecks: decksWithMastered.size };
+    }
+
+    // ── Queue builders ───────────────────────────────────────────────────────
+
+    /** Endless queue: sorted harder-first by ease, no SRS writes during review. */
     buildQueue() {
         this.reviewQueue = [];
         this.sessionReviewed = 0;
         this.sessionCorrect = 0;
         this.sessionStart = Date.now();
+        this.isDailySession = false;
 
-        // If any groups are selected, only include clozes that belong to them
         const activeGroups = [...this.selectedGroups].filter(g => this.sessionGroups.has(g));
         const groupClozeIds: Set<string> | null = activeGroups.length > 0
             ? new Set(activeGroups.flatMap(g => [...(this.sessionGroups.get(g) ?? [])]))
@@ -502,7 +768,7 @@ export class SessionModal extends Modal {
         });
 
         filtered.forEach(card => {
-            card.clozes.forEach((cloze: any) => {
+            (card.clozes || []).forEach((cloze: any) => {
                 if (!cloze.id) return;
                 if (this.excludedClozeIds.has(cloze.id)) return;
                 if (groupClozeIds && !groupClozeIds.has(cloze.id)) return;
@@ -510,8 +776,83 @@ export class SessionModal extends Modal {
             });
         });
 
+        // Harder cards (lower ease) appear first, with slight randomness within tiers
+        this.reviewQueue.sort((a, b) => {
+            const easeA = this.pluginData.cards[a.id]?.ease ?? 2.5;
+            const easeB = this.pluginData.cards[b.id]?.ease ?? 2.5;
+            return (easeA - easeB) + (Math.random() - 0.5) * 0.3;
+        });
+    }
+
+    /** Daily queue: due cards + per-deck new card allocations + one mastery card per deck. */
+    buildDailyQueue() {
+        this.reviewQueue = [];
+        this.sessionReviewed = 0;
+        this.sessionCorrect = 0;
+        this.sessionStart = Date.now();
+        this.isDailySession = true;
+        this.dailyNewCardsReviewed = 0;
+
+        const today = todayISO();
+        if (this.pluginData.newCardsDate !== today) {
+            this.pluginData.newCardsSeenToday = 0;
+            this.pluginData.newCardsDate = today;
+        }
+
+        const filtered = this.allCards.filter(c => {
+            if (c.type === 'dictionary' || !this.selectedDecks.has(c.deck)) return false;
+            if (c.batch) return this.selectedBatches.has(`${c.deck}::${c.batch}`);
+            return true;
+        });
+
+        // Track new cards added per deck
+        const newCardsAdded = new Map<string, number>();
+        this.newCardAllocations.forEach((_, d) => newCardsAdded.set(d, 0));
+
+        // Collect mastered cards per deck for mastery virtual items
+        const masteredByDeck = new Map<string, Array<{ card: any; cloze: any }>>();
+
+        filtered.forEach(card => {
+            (card.clozes || []).forEach((cloze: any) => {
+                if (!cloze.id || this.excludedClozeIds.has(cloze.id)) return;
+                const state = this.pluginData.cards[cloze.id];
+
+                if (isMastered(state)) {
+                    if (!masteredByDeck.has(card.deck)) masteredByDeck.set(card.deck, []);
+                    masteredByDeck.get(card.deck)!.push({ card, cloze });
+                    return;
+                }
+
+                if (!state || state.interval === 0) {
+                    const allocation = this.newCardAllocations.get(card.deck) ?? 0;
+                    const added = newCardsAdded.get(card.deck) ?? 0;
+                    if (added >= allocation) return;
+                    newCardsAdded.set(card.deck, added + 1);
+                    this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
+                } else if (isDue(state)) {
+                    this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
+                }
+            });
+        });
+
+        // One mastery virtual card per deck that has mastered cards
+        for (const [deckName, masteredCards] of masteredByDeck) {
+            if (masteredCards.length === 0) continue;
+            const picked = masteredCards[Math.floor(Math.random() * masteredCards.length)]!;
+            this.reviewQueue.push({
+                ...picked.card,
+                currentCloze: picked.cloze,
+                id: picked.cloze.id,
+                dict: this.dict,
+                _isMasteryReview: true,
+                _masteryDeck: deckName,
+            });
+        }
+
         this.reviewQueue.sort(() => Math.random() - 0.5);
     }
+
+    // ── Review loop ──────────────────────────────────────────────────────────
 
     renderReviewLoop() {
         const { contentEl } = this;
@@ -527,6 +868,12 @@ export class SessionModal extends Modal {
         contentEl.empty();
 
         if (this.reviewQueue.length === 0) {
+            if (this.isDailySession) {
+                this.pluginData.newCardsSeenToday = (this.pluginData.newCardsSeenToday ?? 0) + this.dailyNewCardsReviewed;
+                this.pluginData.lastDailyDate = todayISO();
+                this.isDailySession = false;
+            }
+
             const record: SessionRecord = {
                 date: this.sessionStart,
                 reviewed: this.sessionReviewed,
@@ -553,7 +900,11 @@ export class SessionModal extends Modal {
         }
 
         const header = contentEl.createDiv({ attr: { style: "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--background-modifier-border); padding-bottom:10px; margin-bottom:20px;" } });
-        header.createEl("span", { text: `Cards left: ${this.reviewQueue.length}`, attr: { style: "color:var(--text-muted); font-size:0.8em;" } });
+        const modeLabel = this.isDailySession ? 'Daily' : 'Endless';
+        header.createEl("span", {
+            text: `${modeLabel} · ${this.reviewQueue.length} left`,
+            attr: { style: "color:var(--text-muted); font-size:0.8em;" }
+        });
 
         const toggleContainer = header.createDiv();
         toggleContainer.createEl("span", { text: "Confident: ", attr: { style: "font-size:0.8em; margin-right:4px;" } });
@@ -565,30 +916,76 @@ export class SessionModal extends Modal {
         const cardContainer = contentEl.createDiv();
         this.currentCardContainer = cardContainer;
 
+        /** Re-insert item into the queue a few positions ahead (not immediately next). */
+        const reAddToQueue = (queueItem: any) => {
+            const insertAt = Math.min(this.reviewQueue.length, 3 + Math.floor(Math.random() * 3));
+            this.reviewQueue.splice(insertAt, 0, queueItem);
+        };
+
+        /** Called after incorrect screen is acknowledged, or immediately for map/constellation. */
         const onIncorrectComplete = (wasCorrect: boolean) => {
             if (wasCorrect) this.sessionCorrect++;
-            const newState = SRSEngine.processReview(
-                this.pluginData.cards[item.id],
-                wasCorrect,
-                this.isConfidentToggle
-            );
-            this.pluginData.cards[item.id] = newState;
-            this.plugin.savePluginData();
-            this.reviewQueue.shift();
+
+            if (!this.isDailySession) {
+                // Endless: no SRS writes
+                this.reviewQueue.shift();
+                if (!wasCorrect && this.endlessReaddWrong) reAddToQueue(item);
+                this.renderReviewLoop();
+                return;
+            }
+
+            // Daily: apply SRS
+            const prevState = this.pluginData.cards[item.id];
+
+            if (!wasCorrect) {
+                // Reset consecutive daily streak
+                const penaltyState = SRSEngine.processReview(prevState, false, this.isConfidentToggle);
+                penaltyState.consecutiveDailyCorrect = 0;
+                this.pluginData.cards[item.id] = penaltyState;
+                this.plugin.savePluginData();
+                this.reviewQueue.shift();
+                // Re-add without mastery flag (even if it was a mastery review)
+                const reAddItem = { ...item, _isMasteryReview: false };
+                reAddToQueue(reAddItem);
+
+                // If this was a mastery review and deck still has other mastered cards, add new mastery card
+                if (item._isMasteryReview) {
+                    this.maybeReAddMasteryCard(item._masteryDeck, item.id);
+                }
+            } else {
+                // Self-corrected on incorrect screen
+                const correctState = SRSEngine.processReview(prevState, true, this.isConfidentToggle);
+                const prevStreak = prevState?.consecutiveDailyCorrect ?? 0;
+                correctState.consecutiveDailyCorrect = prevStreak + 1;
+                this.pluginData.cards[item.id] = correctState;
+                this.plugin.savePluginData();
+                this.reviewQueue.shift();
+            }
+
             this.renderReviewLoop();
         };
 
         const handleResult = (isCorrect: boolean, userAnswer: string) => {
             this.sessionReviewed++;
+
+            // Track new cards in daily
+            if (this.isDailySession && (!this.pluginData.cards[item.id] || (this.pluginData.cards[item.id]?.interval ?? 0) === 0)) {
+                this.dailyNewCardsReviewed++;
+            }
+
             if (isCorrect) {
                 this.sessionCorrect++;
-                const newState = SRSEngine.processReview(
-                    this.pluginData.cards[item.id],
-                    true,
-                    this.isConfidentToggle
-                );
-                this.pluginData.cards[item.id] = newState;
-                this.plugin.savePluginData();
+
+                if (this.isDailySession) {
+                    const prevState = this.pluginData.cards[item.id];
+                    const newState = SRSEngine.processReview(prevState, true, this.isConfidentToggle);
+                    const prevStreak = prevState?.consecutiveDailyCorrect ?? 0;
+                    newState.consecutiveDailyCorrect = prevStreak + 1;
+                    this.pluginData.cards[item.id] = newState;
+                    this.plugin.savePluginData();
+                }
+                // Endless: no SRS writes
+
                 this.reviewQueue.shift();
                 this.renderReviewLoop();
             } else {
@@ -631,5 +1028,34 @@ export class SessionModal extends Modal {
         } else {
             TraditionalEngine.renderInModal(this.app, item.filePath, cardContainer, item.currentCloze, handleResult, item.dict);
         }
+    }
+
+    /**
+     * After a mastery card is answered wrong and removed from the mastery pile,
+     * check if the deck still has other mastered cards and if so re-add a mastery virtual card.
+     */
+    private maybeReAddMasteryCard(deckName: string, failedClozeId: string) {
+        const stillMastered: Array<{ card: any; cloze: any }> = [];
+        for (const c of this.allCards) {
+            if (c.deck !== deckName || c.type === 'dictionary') continue;
+            for (const cloze of (c.clozes || [])) {
+                if (cloze.id === failedClozeId) continue;
+                if (isMastered(this.pluginData.cards[cloze.id])) {
+                    stillMastered.push({ card: c, cloze });
+                }
+            }
+        }
+        if (stillMastered.length === 0) return;
+
+        const picked = stillMastered[Math.floor(Math.random() * stillMastered.length)]!;
+        const insertAt = Math.min(this.reviewQueue.length, 3 + Math.floor(Math.random() * 3));
+        this.reviewQueue.splice(insertAt, 0, {
+            ...picked.card,
+            currentCloze: picked.cloze,
+            id: picked.cloze.id,
+            dict: this.dict,
+            _isMasteryReview: true,
+            _masteryDeck: deckName,
+        });
     }
 }

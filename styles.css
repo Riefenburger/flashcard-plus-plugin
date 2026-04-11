@@ -2215,3 +2215,242 @@ button.mod-ghost:hover {
         font-size: 1.1em;
     }
 }
+
+/* ── Session Mode Tabs ───────────────────────────────────────────────────── */
+
+.gi-mode-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 14px 0 0;
+    border-bottom: 2px solid var(--background-modifier-border);
+    padding-bottom: 0;
+}
+
+.gi-mode-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    padding: 6px 18px;
+    font-size: 0.9em;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px 4px 0 0;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.gi-mode-tab:hover {
+    color: var(--text-normal);
+}
+
+.gi-mode-tab.gi-mode-tab-active {
+    color: var(--text-normal);
+    border-bottom-color: var(--interactive-accent);
+    font-weight: 600;
+}
+
+.gi-mode-tab-content {
+    padding-top: 12px;
+}
+
+/* ── Daily Tab ───────────────────────────────────────────────────────────── */
+
+.gi-daily-stats-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.gi-daily-stat-due {
+    color: var(--text-accent, var(--interactive-accent));
+    font-weight: 600;
+}
+
+.gi-daily-stat-mastered {
+    color: var(--color-green, #22c55e);
+}
+
+.gi-daily-complete-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: color-mix(in srgb, var(--color-green, #22c55e) 15%, transparent);
+    color: var(--color-green, #22c55e);
+    border: 1px solid color-mix(in srgb, var(--color-green, #22c55e) 40%, transparent);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.gi-daily-settings-wrap {
+    margin: 8px 0 4px;
+}
+
+.gi-daily-settings-hdr {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+}
+
+.gi-daily-settings-body {
+    padding-left: 8px;
+    border-left: 2px solid var(--background-modifier-border);
+    margin-left: 6px;
+    margin-top: 4px;
+}
+
+/* ── New card allocator ──────────────────────────────────────────────────── */
+
+.gi-alloc-section {
+    margin: 10px 0 6px;
+    background: var(--background-secondary);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.gi-alloc-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.gi-alloc-title {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.gi-alloc-cap-wrap {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+.gi-alloc-cap-input {
+    width: 48px;
+    text-align: center;
+    padding: 2px 4px;
+    font-size: 0.85em;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+}
+
+.gi-alloc-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.gi-alloc-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+}
+
+.gi-alloc-deck-name {
+    flex: 1;
+    font-size: 0.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gi-alloc-num {
+    width: 48px;
+    text-align: center;
+    padding: 2px 4px;
+    font-size: 0.85em;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+}
+
+.gi-lock-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border-radius: 4px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.gi-lock-btn.gi-lock-btn-active {
+    color: var(--interactive-accent);
+}
+
+.gi-lock-btn svg {
+    width: 13px;
+    height: 13px;
+}
+
+.gi-alloc-avail {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.gi-alloc-total {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--background-modifier-border);
+    font-size: 0.8em;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+/* ── Icon buttons ────────────────────────────────────────────────────────── */
+
+.gi-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.gi-icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.gi-deck-tree-toggle svg {
+    width: 12px;
+    height: 12px;
+}
+
+.gi-group-delete-btn svg {
+    width: 12px;
+    height: 12px;
+}
+
+.gi-badge-icon {
+    display: flex;
+    align-items: center;
+}
+
+.gi-badge-icon svg {
+    width: 14px;
+    height: 14px;
+}
