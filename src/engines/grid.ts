@@ -291,7 +291,7 @@ export class GridEngine {
         });
 
         const gridWrap = container.createDiv({ cls: 'gi-grid-review-grid-wrap' });
-        const gridEl = gridWrap.createDiv({ cls: 'gi-grid-review' });
+        const gridEl = gridWrap.createDiv({ cls: 'gi-grid-review gi-grid-easy-mode' });
         gridEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
 
         const covered = new Set<number>();

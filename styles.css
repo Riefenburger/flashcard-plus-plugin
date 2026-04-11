@@ -1804,8 +1804,8 @@ button.mod-ghost:hover {
     visibility: hidden;
 }
 
-/* Dim all regular cells so the target ? stands out */
-.gi-grid-review-cell:not(.gi-grid-review-cell--target):not(.gi-grid-review-cell--mirror):not(.gi-grid-review-cell--empty) {
+/* Dim all regular cells so the target ? stands out — skip in easy mode */
+.gi-grid-review:not(.gi-grid-easy-mode) .gi-grid-review-cell:not(.gi-grid-review-cell--target):not(.gi-grid-review-cell--mirror):not(.gi-grid-review-cell--empty) {
     opacity: 0.35;
 }
 
@@ -2707,6 +2707,19 @@ button.mod-ghost:hover {
     max-width: none;
     max-height: none;
     aspect-ratio: unset;
+}
+
+/* When the whole card column goes fullscreen, fill the screen and
+   allow the incorrect / result content to scroll below the map. */
+.gi-card-col:fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow-y: auto;
+    background: var(--background-primary);
+    padding: 8px;
+    box-sizing: border-box;
 }
 
 /* ── Contribution calendar ───────────────────────────────────────────────── */

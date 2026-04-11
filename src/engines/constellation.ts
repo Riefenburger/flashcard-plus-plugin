@@ -42,15 +42,26 @@ function proj(
 }
 
 function centroidOf(feature: any): [number, number] {
-    let sumLon = 0, sumLat = 0, n = 0;
+    // 3-D Cartesian averaging handles the RA 0°/360° wrap-around correctly.
+    let sumX = 0, sumY = 0, sumZ = 0, n = 0;
     const geom = feature.geometry;
     const rings: number[][][] = geom.type === 'Polygon'
         ? geom.coordinates
         : (geom.coordinates as number[][][][]).flat(1);
     for (const ring of rings) {
-        for (const coord of ring) { sumLon += coord[0] ?? 0; sumLat += coord[1] ?? 0; n++; }
+        for (const coord of ring) {
+            const lo = toRad(coord[0] ?? 0);
+            const la = toRad(coord[1] ?? 0);
+            sumX += Math.cos(la) * Math.cos(lo);
+            sumY += Math.cos(la) * Math.sin(lo);
+            sumZ += Math.sin(la);
+            n++;
+        }
     }
-    return n ? [sumLon / n, sumLat / n] : [0, 0];
+    if (!n) return [0, 0];
+    const lon = Math.atan2(sumY / n, sumX / n) * 180 / Math.PI;
+    const lat = Math.atan2(sumZ / n, Math.hypot(sumX / n, sumY / n)) * 180 / Math.PI;
+    return [lon, lat];
 }
 
 /** Shared rendering core used by both renderInModal and renderPreview. */
@@ -314,6 +325,79 @@ function drawSky(
     ctx.fillRect(0, 0, W, H);
 }
 
+/**
+ * Draws a green arrow at the canvas edge pointing toward the target constellation
+ * when its centroid is off-screen. Must be called after drawSky (canvas dims are set).
+ */
+function drawOffscreenArrow(
+    canvas: HTMLCanvasElement,
+    targetLon: number, targetLat: number,
+    viewLon: number, viewLat: number,
+    zoom: number
+): void {
+    const W = canvas.width;
+    const H = canvas.height;
+    if (!W || !H) return;
+    const cx = W / 2, cy = H / 2;
+    const scale = Math.min(W, H) / 2 * 1.5 * zoom;
+    const edgePad = 32;
+
+    const [sx, sy, cosc] = proj(targetLon, targetLat, viewLon, viewLat, scale, cx, cy);
+
+    // If the centroid is already well inside the canvas, no arrow needed
+    const onScreen = cosc > 0.001
+        && sx >= edgePad && sx <= W - edgePad
+        && sy >= edgePad && sy <= H - edgePad;
+    if (onScreen) return;
+
+    // Direction toward the target
+    let dx: number, dy: number;
+    if (cosc > 0.001) {
+        // In front hemisphere but past the canvas edge
+        dx = sx - cx;
+        dy = sy - cy;
+    } else {
+        // Behind the 90° horizon — approximate direction via angular diff
+        const dLon = ((targetLon - viewLon + 540) % 360) - 180;
+        const dLat = targetLat - viewLat;
+        dx = -dLon; // east is left (−x flip) in gnomonic
+        dy = -dLat; // north is up (−y)
+    }
+
+    const len = Math.hypot(dx, dy);
+    if (len < 0.001) return;
+    const nx = dx / len, ny = dy / len;
+
+    // Find where the ray from canvas centre hits the padded edge rectangle
+    const ts: number[] = [];
+    if (nx > 0) ts.push((W - cx - edgePad) / nx);
+    if (nx < 0) ts.push((edgePad - cx) / nx);
+    if (ny > 0) ts.push((H - cy - edgePad) / ny);
+    if (ny < 0) ts.push((edgePad - cy) / ny);
+    const tMin = Math.min(...ts.filter(v => v > 0));
+    if (!isFinite(tMin)) return;
+
+    const ax = cx + nx * tMin;
+    const ay = cy + ny * tMin;
+    const arrowSize = 13;
+
+    const ctx = canvas.getContext('2d')!;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.translate(ax, ay);
+    ctx.rotate(Math.atan2(ny, nx));
+    ctx.shadowColor = '#22c55e';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(arrowSize, 0);
+    ctx.lineTo(-arrowSize * 0.55, arrowSize * 0.5);
+    ctx.lineTo(-arrowSize * 0.55, -arrowSize * 0.5);
+    ctx.closePath();
+    ctx.fillStyle = '#4ade80';
+    ctx.fill();
+    ctx.restore();
+}
+
 /** Attach drag-to-rotate interaction to a canvas.
  *  Returns [cleanupFn, wasDragging].
  *  wasDragging() returns true if the pointer moved > 4px since mousedown —
@@ -492,16 +576,17 @@ export class ConstellationEngine {
         let viewLon = cLon0, viewLat = cLat0, viewZoom = 1;
         let revealed = false, revealName = '';
 
-        const draw = () => drawSky(
-            canvas, viewLon, viewLat, viewZoom,
-            featureId, new Set<string>(), showLines,
-            revealed, revealName, new Map()
-        );
+        const draw = () => {
+            drawSky(canvas, viewLon, viewLat, viewZoom,
+                featureId, new Set<string>(), showLines,
+                revealed, revealName, new Map());
+            if (revealed) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, viewZoom);
+        };
 
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(wrap, draw);
+        addFullscreenButton(container, draw);
 
         const [cleanupDrag] = attachDrag(
             canvas,
@@ -518,6 +603,7 @@ export class ConstellationEngine {
             if (isCorrect) {
                 onComplete(true, rawAnswer.trim());
             } else {
+                viewLon = cLon0; viewLat = cLat0; // pan to correct constellation
                 revealed = true;
                 revealName = Array.isArray(cloze.back) ? (cloze.back[0] ?? '') : (cloze.featureName ?? featureId);
                 draw();
@@ -575,17 +661,20 @@ export class ConstellationEngine {
 
         let viewLon = cLon0, viewLat = cLat0, viewZoom = 1;
         let answered = false;
+        let revealTarget: string | null = null; // set after answer so drag keeps the highlight
+        let revealLabel = '';
 
-        const draw = () => drawSky(
-            canvas, viewLon, viewLat, viewZoom,
-            null, new Set<string>(), true, // always show lines in easy mode
-            false, '', new Map()
-        );
+        const draw = () => {
+            drawSky(canvas, viewLon, viewLat, viewZoom,
+                revealTarget, new Set<string>(), showLines,
+                revealTarget !== null, revealLabel, new Map());
+            if (revealTarget) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, viewZoom);
+        };
 
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(wrap, draw);
+        addFullscreenButton(container, draw);
 
         const [cleanupDrag, wasDragged] = attachDrag(
             canvas,
@@ -605,10 +694,11 @@ export class ConstellationEngine {
             const isCorrect = clickedId === featureId;
             const userAnswer = clickedId ?? '';
 
-            // Always reveal the correct constellation on canvas
-            drawSky(canvas, viewLon, viewLat, viewZoom,
-                featureId, new Set<string>(), showLines,
-                true, isCorrect ? '' : correctName, new Map());
+            // Pan to the correct constellation's centroid, then reveal it
+            if (!isCorrect) { viewLon = cLon0; viewLat = cLat0; }
+            revealTarget = featureId;
+            revealLabel = isCorrect ? '' : correctName;
+            draw();
 
             promptWrap.remove();
 

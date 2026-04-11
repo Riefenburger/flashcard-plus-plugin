@@ -48,8 +48,6 @@ export class MapEngine {
         // Store cleanup on container so session-modal can call it
         (container as any)._leafletCleanup = () => { map.remove(); };
 
-        addFullscreenButton(mapDiv, () => map.invalidateSize());
-
         const isHistorical = cloze.era && cloze.era !== 'present';
 
         const geoJsonLayer = L.geoJSON(geoData as any, {
@@ -76,6 +74,7 @@ export class MapEngine {
             map.setView([cloze.lat, cloze.lng], 4);
         }
 
+        addFullscreenButton(container, () => map.invalidateSize());
         requestAnimationFrame(() => map.invalidateSize());
 
         const handleSubmit = (rawAnswer: string) => {
@@ -135,7 +134,7 @@ export class MapEngine {
         ro.observe(mapDiv);
         (container as any)._leafletCleanup = () => { ro.disconnect(); map.remove(); };
 
-        addFullscreenButton(mapDiv, () => map.invalidateSize());
+        addFullscreenButton(container, () => map.invalidateSize());
 
         let answered = false;
 
