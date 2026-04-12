@@ -70,18 +70,23 @@ function clipRing(
         const c0 = ring[i]!,  c1 = ring[(i + 1) % n]!;
         const lo0 = c0[0] ?? 0, la0 = c0[1] ?? 0;
         const lo1 = c1[0] ?? 0, la1 = c1[1] ?? 0;
+        // Wrap lon delta to shortest arc — fixes antimeridian-crossing edges (Russia, Fiji, etc.)
+        let dlo = lo1 - lo0;
+        if (dlo > 180) dlo -= 360;
+        if (dlo < -180) dlo += 360;
+        const dla = la1 - la0;
         const [x0, y0, cc0] = p(lo0, la0);
         const [,   ,   cc1] = p(lo1, la1);
         if (cc0 >= 0) out.push([x0, y0]);
         if ((cc0 >= 0) !== (cc1 >= 0)) {
-            // Edge crosses horizon — binary search for crossing point
+            // Edge crosses horizon — binary search for exact crossing using shortest-arc interp
             let lo = 0, hi = 1;
             for (let k = 0; k < 16; k++) {
                 const m = (lo + hi) / 2;
-                if (p(lo0 + m*(lo1-lo0), la0 + m*(la1-la0))[2] >= 0) lo = m; else hi = m;
+                if (p(lo0 + m*dlo, la0 + m*dla)[2] >= 0) lo = m; else hi = m;
             }
             const m = (lo + hi) / 2;
-            const [cx2, cy2] = p(lo0 + m*(lo1-lo0), la0 + m*(la1-la0));
+            const [cx2, cy2] = p(lo0 + m*dlo, la0 + m*dla);
             out.push([cx2, cy2]);
         }
     }
@@ -522,15 +527,15 @@ export class GlobeEngine {
 
         const draw = () => {
             drawGlobe(canvas, viewLon, viewLat, featureId || null, new Set(),
-                revealed, revealName, new Map(), zoom,
-                revealed ? pointMarker : pointMarker);
+                revealed, revealName, new Map(), zoom, pointMarker);
             if (revealed) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, zoom);
         };
 
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(container, draw);
+        const fsTarget = container.closest('.gi-review-root') as HTMLElement ?? container;
+        addFullscreenButton(fsTarget, draw);
 
         const [cleanupDrag] = attachGlobeDrag(
             canvas,
@@ -580,9 +585,12 @@ export class GlobeEngine {
         container.addClass('gi-card-col');
 
         const featureId: string = cloze.featureId ?? '';
-        const correctName = Array.isArray(cloze.back) ? (cloze.back[0] ?? featureId) : featureId;
-        const target = GlobeEngine.findFeature(featureId);
-        const [cLon0, cLat0] = target ? centroidOf(target) : [0, 20];
+        const isPoint = cloze.type === 'point' || (!featureId && cloze.lat != null);
+        const pointMarker: [number, number] | null = isPoint ? [cloze.lng ?? 0, cloze.lat ?? 0] : null;
+        const correctName = Array.isArray(cloze.back) ? (cloze.back[0] ?? featureId) : (cloze.featureName ?? featureId);
+        const target = featureId ? GlobeEngine.findFeature(featureId) : null;
+        const [cLon0, cLat0] = target ? centroidOf(target)
+            : pointMarker ? [pointMarker[0], pointMarker[1]] : [0, 20];
 
         const promptWrap = container.createDiv({ cls: 'gi-easy-prompt' });
         promptWrap.createEl('span', { text: 'Click on: ', cls: 'gi-easy-prompt-label' });
@@ -591,19 +599,22 @@ export class GlobeEngine {
         const wrap = container.createDiv({ cls: 'gi-globe-wrap' });
         const canvas = wrap.createEl('canvas', { cls: 'gi-globe-canvas' });
 
-        let viewLon = cLon0, viewLat = cLat0, zoom = 1;
-        let answered = false, revealTarget: string | null = null, revealLabel = '';
+        // Start at a neutral view so the target isn't immediately visible
+        let viewLon = 10, viewLat = 20, zoom = 1;
+        let answered = false, revealed = false, revealTarget: string | null = null, revealLabel = '';
 
         const draw = () => {
             drawGlobe(canvas, viewLon, viewLat, revealTarget, new Set(),
-                revealTarget !== null, revealLabel, new Map(), zoom);
-            if (revealTarget) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, zoom);
+                revealed, revealLabel, new Map(), zoom,
+                revealed ? pointMarker : null);
+            if (revealed) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, zoom);
         };
 
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(container, draw);
+        const fsTarget2 = container.closest('.gi-review-root') as HTMLElement ?? container;
+        addFullscreenButton(fsTarget2, draw);
 
         const [cleanupDrag, wasDragged] = attachGlobeDrag(
             canvas,
@@ -616,17 +627,28 @@ export class GlobeEngine {
         canvas.addEventListener('click', (e: MouseEvent) => {
             if (answered || wasDragged()) return;
             const rect = canvas.getBoundingClientRect();
-            const clickedId = hitTestGlobe(
-                e.clientX - rect.left, e.clientY - rect.top,
-                viewLon, viewLat, canvas.clientWidth, canvas.clientHeight, zoom
-            );
+            const px = e.clientX - rect.left, py = e.clientY - rect.top;
+
+            let isCorrect = false;
+            let userAnswer = '';
+
+            if (isPoint && pointMarker) {
+                // Point cloze: correct if click is within ~28px of the projected star
+                const halfMin = Math.min(canvas.clientWidth, canvas.clientHeight) / 2;
+                const R = halfMin * 0.985 * zoom;
+                const [sx, sy, cosc] = proj(pointMarker[0], pointMarker[1], viewLon, viewLat, R, canvas.clientWidth/2, canvas.clientHeight/2);
+                isCorrect = cosc > 0 && Math.hypot(px - sx, py - sy) < 28;
+                userAnswer = isCorrect ? correctName : '';
+            } else {
+                const clickedId = hitTestGlobe(px, py, viewLon, viewLat, canvas.clientWidth, canvas.clientHeight, zoom);
+                isCorrect = clickedId === featureId;
+                userAnswer = clickedId ?? '';
+            }
 
             answered = true;
-            const isCorrect = clickedId === featureId;
-            const userAnswer = clickedId ?? '';
-
             if (!isCorrect) { viewLon = cLon0; viewLat = cLat0; zoom = 1; }
-            revealTarget = featureId;
+            revealTarget = featureId || null;
+            revealed = true;
             revealLabel = isCorrect ? '' : correctName;
             draw();
             promptWrap.remove();

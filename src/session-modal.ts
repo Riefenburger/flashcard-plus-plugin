@@ -68,6 +68,8 @@ export class SessionModal extends Modal {
 
     reviewQueue: any[] = [];
     currentCardContainer: HTMLElement | null = null;
+    private reviewRoot: HTMLElement | null = null;      // persistent wrapper — never removed mid-session
+    private reviewHeaderLabel: HTMLElement | null = null;
     isConfidentToggle = true;
     private sessionReviewed = 0;
     private sessionCorrect = 0;
@@ -136,6 +138,8 @@ export class SessionModal extends Modal {
     showSettingsView() {
         const { contentEl } = this;
         contentEl.empty();
+        this.reviewRoot = null;
+        this.reviewHeaderLabel = null;
 
         contentEl.createEl("h2", { text: "Session Settings" });
 
@@ -961,6 +965,7 @@ export class SessionModal extends Modal {
     renderReviewLoop() {
         const { contentEl } = this;
 
+        // Run cleanups on the previous card before emptying anything
         const prevCleanups = ['_leafletCleanup', '_svgCleanup'] as const;
         if (this.currentCardContainer) {
             for (const key of prevCleanups) {
@@ -969,7 +974,13 @@ export class SessionModal extends Modal {
             }
         }
 
-        contentEl.empty();
+        // First call (or after returning from settings): build the persistent root.
+        // Between questions we only empty reviewRoot, never contentEl, so the fullscreen
+        // element stays in the DOM and the browser never exits fullscreen.
+        if (!this.reviewRoot || !contentEl.contains(this.reviewRoot)) {
+            contentEl.empty();
+            this.reviewRoot = contentEl.createDiv({ cls: 'gi-review-root' });
+        }
 
         if (this.reviewQueue.length === 0) {
             if (this.isDailySession) {
@@ -1006,36 +1017,46 @@ export class SessionModal extends Modal {
             if (this.pluginData.history.length > 90) this.pluginData.history.splice(0, this.pluginData.history.length - 90);
             this.plugin.savePluginData();
 
-            contentEl.createEl("h2", { text: "All Done!" });
+            this.reviewRoot.createEl("h2", { text: "All Done!" });
             const pct = this.sessionReviewed > 0
                 ? Math.round((this.sessionCorrect / this.sessionReviewed) * 100)
                 : 0;
-            contentEl.createEl("p", {
+            this.reviewRoot.createEl("p", {
                 text: `Reviewed ${this.sessionReviewed} cards · ${pct}% correct`,
                 attr: { style: "color:var(--text-muted); text-align:center;" }
             });
-            const backBtn = contentEl.createEl("button", { text: "← Settings", cls: "mod-ghost" });
+            const backBtn = this.reviewRoot.createEl("button", { text: "← Settings", cls: "mod-ghost" });
             backBtn.style.marginTop = "16px";
-            backBtn.onclick = () => this.showSettingsView();
+            backBtn.onclick = () => { this.reviewRoot = null; this.showSettingsView(); };
             return;
         }
 
-        const header = contentEl.createDiv({ attr: { style: "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--background-modifier-border); padding-bottom:10px; margin-bottom:20px;" } });
+        // Build the persistent header once; after that just update the label text
         const modeLabel = this.isDailySession ? 'Daily' : 'Endless';
-        header.createEl("span", {
-            text: `${modeLabel} · ${this.reviewQueue.length} left`,
-            attr: { style: "color:var(--text-muted); font-size:0.8em;" }
-        });
-
-        const toggleContainer = header.createDiv();
-        toggleContainer.createEl("span", { text: "Confident: ", attr: { style: "font-size:0.8em; margin-right:4px;" } });
-        const cb = toggleContainer.createEl("input", { type: "checkbox" });
-        cb.checked = this.isConfidentToggle;
-        cb.onchange = () => { this.isConfidentToggle = cb.checked; };
+        if (!this.reviewHeaderLabel) {
+            const header = this.reviewRoot.createDiv({ attr: { style: "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--background-modifier-border); padding-bottom:10px; margin-bottom:20px;" } });
+            this.reviewHeaderLabel = header.createEl("span", {
+                text: `${modeLabel} · ${this.reviewQueue.length} left`,
+                attr: { style: "color:var(--text-muted); font-size:0.8em;" }
+            });
+            const toggleContainer = header.createDiv();
+            toggleContainer.createEl("span", { text: "Confident: ", attr: { style: "font-size:0.8em; margin-right:4px;" } });
+            const cb = toggleContainer.createEl("input", { type: "checkbox" });
+            cb.checked = this.isConfidentToggle;
+            cb.onchange = () => { this.isConfidentToggle = cb.checked; };
+        } else {
+            this.reviewHeaderLabel.setText(`${modeLabel} · ${this.reviewQueue.length} left`);
+        }
 
         const item = this.reviewQueue[0]!;
-        const cardContainer = contentEl.createDiv();
-        this.currentCardContainer = cardContainer;
+        // Reuse a persistent card slot — replacing only its contents keeps the
+        // reviewRoot in the DOM so fullscreen is never interrupted between questions.
+        if (!this.currentCardContainer || !this.reviewRoot.contains(this.currentCardContainer)) {
+            this.currentCardContainer = this.reviewRoot.createDiv();
+        } else {
+            this.currentCardContainer.empty();
+        }
+        const cardContainer = this.currentCardContainer;
 
         /** Re-insert item into the queue a few positions ahead (not immediately next). */
         const reAddToQueue = (queueItem: any) => {
@@ -1145,10 +1166,8 @@ export class SessionModal extends Modal {
         } else if (item.type === "svg") {
             SVGEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult);
         } else if (item.type === "map") {
-            if (easyMode && item.currentCloze?.type === 'region') {
+            if (easyMode) {
                 GlobeEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
-            } else if (easyMode) {
-                this.renderMultipleChoice(cardContainer, item, handleResult);
             } else {
                 GlobeEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
             }
