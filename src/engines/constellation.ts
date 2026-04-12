@@ -523,10 +523,16 @@ function hitTestConstellation(
             : geom.coordinates as number[][][][];
         for (const rings of ringGroups) {
             for (const ring of rings) {
-                const pts = ring.map((coord: number[]) => {
-                    const [sx, sy] = proj(coord[0] ?? 0, coord[1] ?? 0, viewLon, viewLat, scale, cx, cy);
-                    return [sx, sy];
-                });
+                const pts: number[][] = [];
+                let anyBehind = false;
+                for (const coord of ring) {
+                    const [sx, sy, cosc] = proj(coord[0] ?? 0, coord[1] ?? 0, viewLon, viewLat, scale, cx, cy);
+                    if (cosc <= 0) { anyBehind = true; break; }
+                    pts.push([sx, sy]);
+                }
+                // Skip rings with any vertex behind the horizon — their projected
+                // coordinates are degenerate (all snap to cx,cy) and cause false hits.
+                if (anyBehind) continue;
                 if (pointInPolygon(px, py, pts)) return f.id as string;
             }
         }
