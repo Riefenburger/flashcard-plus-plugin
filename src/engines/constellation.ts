@@ -571,6 +571,7 @@ export class ConstellationEngine {
         });
         const submitBtn = inputWrap.createEl('button', { cls: 'gi-map-submit-btn mod-cta' });
         setIcon(submitBtn, 'arrow-right');
+        setTimeout(() => inputEl.focus(), 50);
 
         const wrap = container.createDiv({ cls: 'gi-const-wrap' });
         const canvas = wrap.createEl('canvas', { cls: 'gi-const-canvas' });

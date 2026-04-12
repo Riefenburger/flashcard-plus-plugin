@@ -518,6 +518,7 @@ export class GlobeEngine {
         });
         const submitBtn = inputWrap.createEl('button', { cls: 'gi-map-submit-btn mod-cta' });
         setIcon(submitBtn, 'arrow-right');
+        setTimeout(() => inputEl.focus(), 50);
 
         const wrap = container.createDiv({ cls: 'gi-globe-wrap' });
         const canvas = wrap.createEl('canvas', { cls: 'gi-globe-canvas' });
