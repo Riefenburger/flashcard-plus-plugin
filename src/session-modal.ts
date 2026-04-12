@@ -15,7 +15,7 @@ function deckColor(name: string): string {
     return `hsl(${h % 360}, 55%, 55%)`;
 }
 
-/** Display label for a cloze in the tree — answer where possible, question otherwise. */
+/** Display label for a cloze — answer where possible, question otherwise. */
 function clozeLabel(card: any, cloze: any): string {
     if (card.type === 'grid') {
         const ans = Array.isArray(cloze.answers) ? cloze.answers[0] : null;
@@ -28,8 +28,10 @@ function clozeLabel(card: any, cloze: any): string {
             || cloze.front || cloze.id || '—'
         );
     }
+    // Traditional, timeline, code, audio — prefer the answer (back) over the question (front)
     return String(
-        cloze.front
+        (Array.isArray(cloze.back) ? cloze.back[0] : cloze.back)
+        || cloze.front
         || (Array.isArray(cloze.coords) ? `(${cloze.coords.join(',')})` : null)
         || cloze.id || '—'
     );
@@ -174,8 +176,9 @@ export class SessionModal extends Modal {
             if (card.interval === 0) return;
             const xPos = Math.min((card.interval / 30) * 100, 95);
             const yPos = Math.min(((card.ease - 1.3) / 1.7) * 100, 95);
+            if (!clozeToLabel.has(clozeId)) return; // card deleted — skip
             const deck = clozeToDeck.get(clozeId) ?? '';
-            const label = clozeToLabel.get(clozeId) ?? clozeId;
+            const label = clozeToLabel.get(clozeId)!;
             const color = deck ? deckColor(deck) : 'var(--interactive-accent)';
             const dot = plot.createDiv({ attr: { style: `
                 position: absolute; left: ${xPos}%; bottom: ${yPos}%;
@@ -183,7 +186,7 @@ export class SessionModal extends Modal {
                 background: ${color}; border-radius: 50%; opacity: 0.85;
                 transform: translate(-50%, 50%); cursor: default;
             `}});
-            dot.title = `${label}${deck ? ` · ${deck}` : ''}\n${card.interval}d · ease ${card.ease.toFixed(2)}`;
+            dot.title = `${label}${deck ? ` · ${deck}` : ''}\n${card.interval}d interval · ease ${card.ease.toFixed(2)}`;
         });
 
         stats.createEl("small", {
@@ -362,6 +365,70 @@ export class SessionModal extends Modal {
                 .setValue(this.isConfidentToggle)
                 .onChange(val => { this.isConfidentToggle = val; })
             );
+
+        // ── Today's queue preview ──────────────────────────────────────────
+        const queueWrap = container.createDiv({ cls: 'gi-daily-settings-wrap' });
+        const queueHdr = queueWrap.createDiv({ cls: 'gi-daily-settings-hdr' });
+        const queueToggleIcon = queueHdr.createEl('span', { cls: 'gi-deck-tree-toggle' });
+        setIcon(queueToggleIcon, 'chevron-right');
+        queueHdr.createEl('span', { text: "Today's queue", attr: { style: 'font-size:0.85em; color:var(--text-muted);' } });
+        const queueBody = queueWrap.createDiv({ cls: 'gi-daily-queue-body' });
+        queueBody.style.display = 'none';
+        let queueRendered = false;
+
+        queueHdr.onclick = () => {
+            const open = queueBody.style.display !== 'none';
+            if (open) {
+                queueBody.style.display = 'none';
+                setIcon(queueToggleIcon, 'chevron-right');
+            } else {
+                queueBody.style.display = 'block';
+                setIcon(queueToggleIcon, 'chevron-down');
+                if (!queueRendered) {
+                    queueRendered = true;
+                    const items = this.peekDailyQueue();
+                    if (items.length === 0) {
+                        queueBody.createEl('p', { text: 'No cards in today\'s queue.', attr: { style: 'font-size:0.85em; color:var(--text-muted); margin:4px 0;' } });
+                    } else {
+                        // Group by deck
+                        const byDeck = new Map<string, typeof items>();
+                        for (const item of items) {
+                            const d = item.card.deck || '(no deck)';
+                            if (!byDeck.has(d)) byDeck.set(d, []);
+                            byDeck.get(d)!.push(item);
+                        }
+                        for (const [deck, deckItems] of byDeck) {
+                            const grp = queueBody.createDiv({ cls: 'gi-queue-group' });
+                            const grpHdr = grp.createDiv({ cls: 'gi-queue-group-hdr' });
+                            grpHdr.createDiv({ cls: 'gi-deck-row-swatch', attr: { style: `background:${deckColor(deck)};` } });
+                            grpHdr.createEl('span', { text: `${deck} (${deckItems.length})`, cls: 'gi-queue-group-name' });
+                            for (const item of deckItems) {
+                                const label = clozeLabel(item.card, item.cloze);
+                                const state = this.pluginData.cards[item.cloze.id];
+                                const row = grp.createDiv({ cls: 'gi-queue-row' });
+                                if (item.isNew) row.createEl('span', { text: 'new', cls: 'gi-queue-badge gi-queue-badge-new' });
+                                else if (item.isMastery) row.createEl('span', { text: 'mastery', cls: 'gi-queue-badge gi-queue-badge-mastery' });
+                                else {
+                                    const daysOverdue = state ? Math.floor((Date.now() - state.lastReviewed) / 86_400_000) - state.interval : 0;
+                                    const overStr = daysOverdue > 0 ? `+${daysOverdue}d` : `${state?.interval ?? 0}d`;
+                                    row.createEl('span', { text: overStr, cls: 'gi-queue-badge gi-queue-badge-due' });
+                                }
+                                const labelEl = row.createEl('span', { text: label, cls: 'gi-queue-label' });
+                                labelEl.title = `${item.card.title || ''} · ${item.card.filePath || ''}`;
+                                row.style.cursor = 'pointer';
+                                row.onclick = () => {
+                                    const file = this.app.vault.getAbstractFileByPath(item.card.filePath);
+                                    if (file) {
+                                        this.close();
+                                        this.app.workspace.openLinkText(item.card.filePath, '', false);
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        };
 
         // ── Start button ───────────────────────────────────────────────────
         const totalToReview = dailyStats.due + [...this.newCardAllocations.values()].reduce((a, b) => a + b, 0) + dailyStats.masteryDecks;
@@ -958,6 +1025,53 @@ export class SessionModal extends Modal {
         }
 
         this.reviewQueue.sort(() => Math.random() - 0.5);
+    }
+
+    /** Same logic as buildDailyQueue but returns items without mutating state. */
+    private peekDailyQueue(): Array<{ card: any; cloze: any; isNew: boolean; isMastery: boolean }> {
+        const today = todayISO();
+        const seenToday = this.pluginData.newCardsDate === today
+            ? (this.pluginData.newCardsSeenToday ?? 0) : 0;
+
+        const filtered = this.allCards.filter(c => {
+            if (c.type === 'dictionary' || !this.selectedDecks.has(c.deck)) return false;
+            if (c.batch) return this.selectedBatches.has(`${c.deck}::${c.batch}`);
+            return true;
+        });
+
+        const newCardsAdded = new Map<string, number>();
+        this.newCardAllocations.forEach((_, d) => newCardsAdded.set(d, 0));
+        const masteredByDeck = new Map<string, Array<{ card: any; cloze: any }>>();
+        const result: Array<{ card: any; cloze: any; isNew: boolean; isMastery: boolean }> = [];
+
+        filtered.forEach(card => {
+            (card.clozes || []).forEach((cloze: any) => {
+                if (!cloze.id || this.excludedClozeIds.has(cloze.id)) return;
+                const state = this.pluginData.cards[cloze.id];
+                if (isMastered(state)) {
+                    if (!masteredByDeck.has(card.deck)) masteredByDeck.set(card.deck, []);
+                    masteredByDeck.get(card.deck)!.push({ card, cloze });
+                    return;
+                }
+                if (!state || state.interval === 0) {
+                    const allocation = this.newCardAllocations.get(card.deck) ?? 0;
+                    const added = newCardsAdded.get(card.deck) ?? 0;
+                    if (added >= allocation) return;
+                    newCardsAdded.set(card.deck, added + 1);
+                    result.push({ card, cloze, isNew: true, isMastery: false });
+                } else if (isDue(state)) {
+                    result.push({ card, cloze, isNew: false, isMastery: false });
+                }
+            });
+        });
+
+        for (const [, masteredCards] of masteredByDeck) {
+            if (masteredCards.length === 0) continue;
+            const picked = masteredCards[Math.floor(Math.random() * masteredCards.length)]!;
+            result.push({ card: picked.card, cloze: picked.cloze, isNew: false, isMastery: true });
+        }
+
+        return result;
     }
 
     // ── Review loop ──────────────────────────────────────────────────────────
