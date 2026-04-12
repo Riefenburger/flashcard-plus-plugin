@@ -318,6 +318,7 @@ export class GeoDeckModal extends Modal {
                 featureName: f.name,
                 front: CATEGORY_FRONTS[f.category] ?? 'Name this feature',
                 back: f.altNames.length > 0 ? [f.name, ...f.altNames] : [f.name],
+                group: CATEGORY_LABELS[f.category] ?? f.category,
             }));
     }
 

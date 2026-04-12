@@ -114,6 +114,17 @@ export class SessionModal extends Modal {
                 batches.forEach(b => this.selectedBatches.add(`${deck}::${b}`));
             });
         }
+
+        // Auto-populate groups from cloze group fields (non-destructive merge)
+        this.allCards.forEach(card => {
+            (card.clozes || []).forEach((cloze: any) => {
+                if (!cloze.id || !cloze.group) return;
+                if (!this.sessionGroups.has(cloze.group)) {
+                    this.sessionGroups.set(cloze.group, new Set());
+                }
+                this.sessionGroups.get(cloze.group)!.add(cloze.id);
+            });
+        });
     }
 
     private savePrefs() {

@@ -10,6 +10,7 @@ import { GeoDeckModal } from './geo-deck';
 import { ConstellationDeckModal } from './constellation-deck';
 import { ConstellationEngine } from './engines/constellation';
 import { GlobeEngine } from './engines/globe';
+import { ConstellationEditorModal } from './constellation-editor';
 import { parseTOMLDict } from './utils/toml-dict';
 
 export default class GrandInventoryPlugin extends Plugin {
@@ -162,6 +163,16 @@ export default class GrandInventoryPlugin extends Plugin {
                         filePath: ctx.sourcePath,
                         originalSource: source
                     }).open();
+                };
+            }
+
+            if (cardData.type === "constellation") {
+                const editBtn = header.createEl("button", { cls: "mod-ghost" });
+                setIcon(editBtn, 'pencil');
+                editBtn.appendText(" Edit");
+                editBtn.style.fontSize = "0.75em";
+                editBtn.onclick = () => {
+                    new ConstellationEditorModal(this.app, cardData, ctx.sourcePath, source).open();
                 };
             }
 

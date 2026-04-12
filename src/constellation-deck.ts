@@ -182,6 +182,7 @@ export class ConstellationDeckModal extends Modal {
         const hemLabel = this.selectedHem === 'All' ? '' : ({ N: 'Northern', S: 'Southern', Eq: 'Equatorial' }[this.selectedHem] ?? '');
         const seasonLabel = this.selectedSeason === 'All' ? '' : (this.selectedSeason.charAt(0).toUpperCase() + this.selectedSeason.slice(1));
         const filterLabel = [hemLabel, seasonLabel].filter(Boolean).join(' · ') || 'All';
+        const groupLabel = [hemLabel, seasonLabel].filter(Boolean).join(' · ');
         const typeLabel = this.questionType === 'name-constellation' ? 'Names' : 'Abbreviations';
         const cardTitle = this.title.trim() || `${filterLabel} Constellations — ${typeLabel}`;
         const cardId = `con-${filterLabel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${this.questionType}`;
@@ -197,13 +198,15 @@ export class ConstellationDeckModal extends Modal {
                 ? [c.name, c.abbr]
                 : [c.abbr];
 
-            return {
+            const cloze: any = {
                 id: `con-${c.abbr}-${this.questionType}`,
                 featureId: c.abbr,
                 featureName: c.name,
                 front,
                 back,
             };
+            if (groupLabel) cloze.group = groupLabel;
+            return cloze;
         });
 
         const card: any = {
