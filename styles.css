@@ -1273,7 +1273,7 @@ button.mod-ghost:hover {
 .gi-const-canvas {
     width: 100%;
     height: 100%;
-    cursor: grab;
+    cursor: crosshair;
     touch-action: none;
     display: block;
     /* No border-radius — the sphere circle is drawn in canvas, not via CSS.
@@ -1282,7 +1282,7 @@ button.mod-ghost:hover {
 }
 
 .gi-const-canvas:active {
-    cursor: grabbing;
+    cursor: crosshair;
 }
 
 /* Inline preview — smaller, inside the note */
@@ -2773,9 +2773,11 @@ button.mod-ghost:hover {
     flex-direction: column;
 }
 
-/* Globe expands to fill all available space when fullscreen */
+/* Globe/constellation expands to fill all available space when fullscreen */
 .gi-card-col:fullscreen .gi-globe-wrap,
-.gi-review-root:fullscreen .gi-globe-wrap {
+.gi-review-root:fullscreen .gi-globe-wrap,
+.gi-card-col:fullscreen .gi-const-wrap,
+.gi-review-root:fullscreen .gi-const-wrap {
     flex: 1;
     width: 100%;
     max-width: none;

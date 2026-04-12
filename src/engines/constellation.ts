@@ -586,7 +586,8 @@ export class ConstellationEngine {
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(container, draw);
+        const fsTarget = container.closest('.gi-review-root') as HTMLElement ?? container;
+        addFullscreenButton(fsTarget, draw);
 
         const [cleanupDrag] = attachDrag(
             canvas,
@@ -659,9 +660,10 @@ export class ConstellationEngine {
         const target = bounds.find((f: any) => f.id === featureId);
         const [cLon0, cLat0] = target ? centroidOf(target) : [0, 0];
 
-        let viewLon = cLon0, viewLat = cLat0, viewZoom = 1;
+        // Start at a neutral view so the target constellation isn't immediately visible
+        let viewLon = 0, viewLat = 30, viewZoom = 1;
         let answered = false;
-        let revealTarget: string | null = null; // set after answer so drag keeps the highlight
+        let revealTarget: string | null = null;
         let revealLabel = '';
 
         const draw = () => {
@@ -674,7 +676,8 @@ export class ConstellationEngine {
         const ro = new ResizeObserver(() => draw());
         ro.observe(wrap);
         requestAnimationFrame(draw);
-        addFullscreenButton(container, draw);
+        const fsTarget2 = container.closest('.gi-review-root') as HTMLElement ?? container;
+        addFullscreenButton(fsTarget2, draw);
 
         const [cleanupDrag, wasDragged] = attachDrag(
             canvas,
