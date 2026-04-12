@@ -950,11 +950,17 @@ export class SessionModal extends Modal {
             });
         });
 
-        // Harder cards (lower ease) appear first, with slight randomness within tiers
+        // Shuffle fully first so order within each tier is random every session
+        this.reviewQueue.sort(() => Math.random() - 0.5);
+        // Then sort harder cards (lower ease) to the front — new cards (no data) stay shuffled
         this.reviewQueue.sort((a, b) => {
-            const easeA = this.pluginData.cards[a.id]?.ease ?? 2.5;
-            const easeB = this.pluginData.cards[b.id]?.ease ?? 2.5;
-            return (easeA - easeB) + (Math.random() - 0.5) * 0.3;
+            const stateA = this.pluginData.cards[a.id];
+            const stateB = this.pluginData.cards[b.id];
+            // Cards with no SRS data yet keep their shuffled position relative to each other
+            if (!stateA && !stateB) return 0;
+            if (!stateA) return 1;   // new cards after seen cards
+            if (!stateB) return -1;
+            return stateA.ease - stateB.ease;
         });
     }
 
