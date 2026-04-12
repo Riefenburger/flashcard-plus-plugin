@@ -350,6 +350,7 @@ export class GeoDeckModal extends Modal {
                 featureName: f.name,
                 front,
                 back,
+                group: f.continent || 'Other',
             });
         });
 

@@ -155,10 +155,7 @@ export class ConstellationEditorModal extends Modal {
         const toAdd = this.getFiltered();
         if (toAdd.length === 0) return;
 
-        const hemLabel = this.selectedHem === 'All' ? '' : ({ N: 'Northern', S: 'Southern', Eq: 'Equatorial' }[this.selectedHem] ?? '');
-        const seasonLabel = this.selectedSeason === 'All' ? '' : (this.selectedSeason.charAt(0).toUpperCase() + this.selectedSeason.slice(1));
-        const groupLabel = [hemLabel, seasonLabel].filter(Boolean).join(' · ');
-
+        const HEM_LABEL: Record<string, string> = { N: 'Northern', S: 'Southern', Eq: 'Equatorial' };
         const front = this.questionType === 'name-constellation'
             ? 'Name this constellation'
             : 'Give the abbreviation for this constellation';
@@ -168,15 +165,14 @@ export class ConstellationEditorModal extends Modal {
                 ? [c.name, c.abbr]
                 : [c.abbr];
 
-            const cloze: any = {
+            this.clozes.push({
                 id: `con-${c.abbr}-${this.questionType}`,
                 featureId: c.abbr,
                 featureName: c.name,
                 front,
                 back,
-            };
-            if (groupLabel) cloze.group = groupLabel;
-            this.clozes.push(cloze);
+                group: HEM_LABEL[c.hem] ?? 'Other',
+            });
         }
 
         this.renderList();
