@@ -51,9 +51,6 @@ function fid(f: GeoFeature): string {
     return p?.ADM0_A3 || p?.ISO_A3 || p?.NAME || '';
 }
 
-/** Base globe radius for a given canvas size (zoom = 1). */
-function globeR(W: number, H: number) { return Math.min(W, H) / 2 * 0.93; }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Horizon clipping — fixes edge glitches where countries straddle the horizon
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,18 +127,23 @@ function drawGlobe(
     const ctx = canvas.getContext('2d')!;
     const cx = W/2, cy = H/2;
     const halfMin = Math.min(W, H) / 2;
-    const R     = halfMin * 0.93 * zoom;           // projection radius (scales with zoom)
-    const baseR = Math.min(R, halfMin * 0.99);     // visual clip (grows with zoom, caps at container)
+    const baseR = halfMin * 0.985;                 // base radius at zoom=1 (atmosphere reference)
+    const R     = baseR * zoom;                    // projection radius (grows with zoom)
+    const canvasDiag = Math.hypot(cx, cy);         // distance to canvas corner from centre
+    // When R exceeds the canvas corner distance, the circular clip covers the full canvas
+    // and its border becomes invisible — the globe becomes a flat map.
+    const globeInCanvas = R < canvasDiag * 0.97;
     const p = (lo: number, la: number) => proj(lo, la, viewLon, viewLat, R, cx, cy);
     const features = (worldGeoJSON as any).features as GeoFeature[];
 
-    // Clip everything to the visible globe circle
+    // Clip to R — when R > canvasDiag the arc covers the whole canvas and vanishes
     ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI*2); ctx.clip();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.clip();
 
     // ── Ocean ─────────────────────────────────────────────────────────────────
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI*2);
-    ctx.fillStyle = '#0d1d30'; ctx.fill();
+    // Fill the whole canvas — the clip above constrains it to the globe circle
+    ctx.fillStyle = '#0d1d30';
+    ctx.fillRect(0, 0, W, H);
 
     // ── Graticule ────────────────────────────────────────────────────────────
     ctx.strokeStyle = 'rgba(60,110,160,0.13)'; ctx.lineWidth = 0.5;
@@ -228,15 +230,17 @@ function drawGlobe(
 
     ctx.restore(); // end globe clip
 
-    // ── Atmosphere glow + rim (drawn outside clip so it's always full circle) ─
-    const atm = ctx.createRadialGradient(cx, cy, baseR*0.88, cx, cy, baseR*1.1);
-    atm.addColorStop(0, 'rgba(30,90,200,0)');
-    atm.addColorStop(1, 'rgba(20,70,180,0.22)');
-    ctx.beginPath(); ctx.arc(cx, cy, baseR*1.1, 0, Math.PI*2);
-    ctx.fillStyle = atm; ctx.fill();
+    // ── Atmosphere glow + rim — only when globe fits inside canvas ────────────
+    if (globeInCanvas) {
+        const atm = ctx.createRadialGradient(cx, cy, R*0.88, cx, cy, R*1.1);
+        atm.addColorStop(0, 'rgba(30,90,200,0)');
+        atm.addColorStop(1, 'rgba(20,70,180,0.22)');
+        ctx.beginPath(); ctx.arc(cx, cy, R*1.1, 0, Math.PI*2);
+        ctx.fillStyle = atm; ctx.fill();
 
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(70,130,210,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(70,130,210,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
 
     // ── Reveal name label ─────────────────────────────────────────────────────
     if (revealed && revealName) {
@@ -279,17 +283,19 @@ function drawGlobe(
         }
     }
 
-    // ── Vignette ──────────────────────────────────────────────────────────────
-    const vgn = ctx.createRadialGradient(cx, cy, baseR*0.6, cx, cy, baseR);
-    vgn.addColorStop(0, 'rgba(0,0,0,0)'); vgn.addColorStop(1, 'rgba(0,0,0,0.28)');
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI*2);
-    ctx.fillStyle = vgn; ctx.fill();
+    // ── Vignette — only when globe fits inside canvas ─────────────────────────
+    if (globeInCanvas) {
+        const vgn = ctx.createRadialGradient(cx, cy, R*0.6, cx, cy, R);
+        vgn.addColorStop(0, 'rgba(0,0,0,0)'); vgn.addColorStop(1, 'rgba(0,0,0,0.28)');
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2);
+        ctx.fillStyle = vgn; ctx.fill();
+    }
 
-    // ── Zoom hint (shown briefly when zoom > 1) ───────────────────────────────
+    // ── Zoom hint ─────────────────────────────────────────────────────────────
     if (zoom > 1.05) {
         ctx.font = '11px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
         ctx.fillStyle = 'rgba(150,180,220,0.55)';
-        ctx.fillText(`${zoom.toFixed(1)}×`, cx + baseR - 6, cy - baseR + 6);
+        ctx.fillText(`${zoom.toFixed(1)}×`, W - 8, 8);
     }
 }
 
@@ -308,14 +314,14 @@ function attachGlobeDrag(
     let dragging = false, lastX = 0, lastY = 0, moved = false;
     let lastPinchDist = 0;
 
-    const baseR = () => globeR(canvas.clientWidth, canvas.clientHeight);
     const start = (x: number, y: number) => { dragging = true; moved = false; lastX = x; lastY = y; };
     const move  = (x: number, y: number) => {
         if (!dragging) return;
         const dx = x - lastX, dy = y - lastY;
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moved = true;
         lastX = x; lastY = y;
-        const f = 180 / Math.PI / (baseR() * getZoom());
+        const dragR = Math.min(canvas.clientWidth, canvas.clientHeight) / 2 * 0.985;
+        const f = 180 / Math.PI / (dragR * getZoom());
         const [lon, lat] = getView();
         let newLon = lon - dx * f;
         if (newLon >  180) newLon -= 360;
@@ -400,10 +406,9 @@ function pointInPoly(px: number, py: number, vs: [number,number][]): boolean {
 function hitTestGlobe(px: number, py: number, viewLon: number, viewLat: number,
                       W: number, H: number, zoom = 1): string | null {
     const halfMin = Math.min(W, H) / 2;
-    const R = halfMin * 0.93 * zoom;
-    const baseR = Math.min(R, halfMin * 0.99);
+    const baseR = halfMin * 0.985;
+    const R = baseR * zoom;
     const cx = W/2, cy = H/2;
-    // Only reject clicks clearly outside the visible circle
     if (Math.hypot(px - cx, py - cy) > baseR + 2) return null;
 
     for (const f of (worldGeoJSON as any).features as GeoFeature[]) {
@@ -435,8 +440,8 @@ function drawOffscreenArrow(canvas: HTMLCanvasElement, targetLon: number, target
     if (!W || !H) return;
     const cx = W/2, cy = H/2;
     const halfMin = Math.min(W, H) / 2;
-    const R = halfMin * 0.93 * zoom;
-    const baseR = Math.min(R, halfMin * 0.99);
+    const baseR = halfMin * 0.985;
+    const R = baseR * zoom;
     const edgePad = 32;
     const [sx, sy, cosc] = proj(targetLon, targetLat, viewLon, viewLat, R, cx, cy);
     if (cosc > 0 && sx >= edgePad && sx <= W-edgePad && sy >= edgePad && sy <= H-edgePad) return;
