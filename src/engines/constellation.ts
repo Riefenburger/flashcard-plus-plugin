@@ -102,8 +102,12 @@ function drawSky(
     ctx.fillStyle = '#060d1a';
     ctx.fillRect(0, 0, W, H);
 
-    // Max projected distance before a vertex is treated as off-screen artifact
-    const maxProjDist = Math.max(W, H) * 2.5;
+    // Reject near-horizon vertices that project far off-screen (zoom-adaptive).
+    // tan(68°) ≈ 2.5, canvas corner ≈ 48° — gives comfortable margin.
+    // IMPORTANT: when any vertex is skipped, closePath() must NOT be called or it draws
+    // a spurious line from the last drawn point back to the last moveTo mid-ring.
+    const inView = (sx: number, sy: number) =>
+        Math.hypot(sx - cx, sy - cy) <= scale * 2.5;
 
     // ── Non-target boundary grid lines ────────────────────────────────────────
     if (showBorders) {
@@ -113,19 +117,20 @@ function drawSky(
             const ringGroups: number[][][][] = geom.type === 'Polygon'
                 ? [geom.coordinates as number[][][]]
                 : geom.coordinates as number[][][][];
-            ctx.strokeStyle = 'rgba(50,80,140,0.32)';
+            ctx.strokeStyle = 'rgba(50,80,140,0.12)';
             ctx.lineWidth = 0.5;
             for (const rings of ringGroups) {
                 for (const ring of rings) {
                     ctx.beginPath();
                     let first = true;
+                    let anySkipped = false;
                     for (const coord of ring) {
                         const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
-                        if (z < 0 || Math.hypot(sx - cx, sy - cy) > maxProjDist) { first = true; continue; }
+                        if (z < 0 || !inView(sx, sy)) { first = true; anySkipped = true; continue; }
                         if (first) { ctx.moveTo(sx, sy); first = false; }
                         else ctx.lineTo(sx, sy);
                     }
-                    ctx.closePath();
+                    if (!anySkipped) ctx.closePath();
                     ctx.stroke();
                 }
             }
@@ -227,13 +232,14 @@ function drawSky(
                 for (const ring of rings) {
                     ctx.beginPath();
                     let first = true;
+                    let anySkipped = false;
                     for (const coord of ring) {
                         const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
-                        if (z < 0 || Math.hypot(sx - cx, sy - cy) > maxProjDist) { first = true; continue; }
+                        if (z < 0 || !inView(sx, sy)) { first = true; anySkipped = true; continue; }
                         if (first) { ctx.moveTo(sx, sy); first = false; }
                         else ctx.lineTo(sx, sy);
                     }
-                    ctx.closePath();
+                    if (!anySkipped) ctx.closePath();
                     // Outer glow pass
                     ctx.shadowColor = glowColor;
                     ctx.shadowBlur = 12;
