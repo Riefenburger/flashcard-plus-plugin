@@ -72,6 +72,7 @@ function drawSky(
     targetId: string | null,      // null = preview mode (no target)
     highlightIds: Set<string>,    // ids to show name labels (preview) or to glow (review)
     showLines: boolean,
+    showBorders: boolean,
     revealed: boolean,
     revealName: string,
     labelMap: Map<string, string> // featureId → display name (for preview labels)
@@ -101,27 +102,32 @@ function drawSky(
     ctx.fillStyle = '#060d1a';
     ctx.fillRect(0, 0, W, H);
 
+    // Max projected distance before a vertex is treated as off-screen artifact
+    const maxProjDist = Math.max(W, H) * 2.5;
+
     // ── Non-target boundary grid lines ────────────────────────────────────────
-    for (const f of bounds) {
-        if (f.id === targetId) continue;
-        const geom = f.geometry;
-        const ringGroups: number[][][][] = geom.type === 'Polygon'
-            ? [geom.coordinates as number[][][]]
-            : geom.coordinates as number[][][][];
-        ctx.strokeStyle = 'rgba(50,80,140,0.32)';
-        ctx.lineWidth = 0.5;
-        for (const rings of ringGroups) {
-            for (const ring of rings) {
-                ctx.beginPath();
-                let first = true;
-                for (const coord of ring) {
-                    const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
-                    if (z < 0) { first = true; continue; }
-                    if (first) { ctx.moveTo(sx, sy); first = false; }
-                    else ctx.lineTo(sx, sy);
+    if (showBorders) {
+        for (const f of bounds) {
+            if (f.id === targetId) continue;
+            const geom = f.geometry;
+            const ringGroups: number[][][][] = geom.type === 'Polygon'
+                ? [geom.coordinates as number[][][]]
+                : geom.coordinates as number[][][][];
+            ctx.strokeStyle = 'rgba(50,80,140,0.32)';
+            ctx.lineWidth = 0.5;
+            for (const rings of ringGroups) {
+                for (const ring of rings) {
+                    ctx.beginPath();
+                    let first = true;
+                    for (const coord of ring) {
+                        const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
+                        if (z < 0 || Math.hypot(sx - cx, sy - cy) > maxProjDist) { first = true; continue; }
+                        if (first) { ctx.moveTo(sx, sy); first = false; }
+                        else ctx.lineTo(sx, sy);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
                 }
-                ctx.closePath();
-                ctx.stroke();
             }
         }
     }
@@ -223,7 +229,7 @@ function drawSky(
                     let first = true;
                     for (const coord of ring) {
                         const [sx, sy, z] = p(coord[0] ?? 0, coord[1] ?? 0);
-                        if (z < 0) { first = true; continue; }
+                        if (z < 0 || Math.hypot(sx - cx, sy - cy) > maxProjDist) { first = true; continue; }
                         if (first) { ctx.moveTo(sx, sy); first = false; }
                         else ctx.lineTo(sx, sy);
                     }
@@ -558,6 +564,7 @@ export class ConstellationEngine {
         container.addClass('gi-card-col');
 
         const showLines: boolean = cardData.showLines !== false;
+        const showBorders: boolean = cardData.showBorders !== false;
         const featureId: string = cloze.featureId ?? '';
 
         // ── Input bar (at top so keyboard doesn't cover it on mobile) ──────
@@ -585,7 +592,7 @@ export class ConstellationEngine {
 
         const draw = () => {
             drawSky(canvas, viewLon, viewLat, viewZoom,
-                featureId, new Set<string>(), showLines,
+                featureId, new Set<string>(), showLines, showBorders,
                 revealed, revealName, new Map());
             if (revealed) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, viewZoom);
         };
@@ -652,6 +659,7 @@ export class ConstellationEngine {
         container.addClass('gi-card-col');
 
         const showLines: boolean = cardData.showLines !== false;
+        const showBorders: boolean = cardData.showBorders !== false;
         const featureId: string = cloze.featureId ?? '';
         const correctName: string = Array.isArray(cloze.back) ? (cloze.back[0] ?? featureId) : featureId;
 
@@ -675,7 +683,7 @@ export class ConstellationEngine {
 
         const draw = () => {
             drawSky(canvas, viewLon, viewLat, viewZoom,
-                revealTarget, new Set<string>(), showLines,
+                revealTarget, new Set<string>(), showLines, showBorders,
                 revealTarget !== null, revealLabel, new Map());
             if (revealTarget) drawOffscreenArrow(canvas, cLon0, cLat0, viewLon, viewLat, viewZoom);
         };
@@ -767,7 +775,7 @@ export class ConstellationEngine {
 
         const draw = () => drawSky(
             canvas, viewLon, viewLat, viewZoom,
-            null, highlightIds, showLines,
+            null, highlightIds, showLines, true,
             false, '', labelMap
         );
 

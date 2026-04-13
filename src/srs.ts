@@ -17,6 +17,9 @@ export interface SessionPrefs {
     selectedBatches: string[];
     excludedClozeIds: string[];
     sessionGroups: Record<string, string[]>; // groupName → cloze IDs
+    selectedGroups?: string[];               // which groups are active
+    conShowLines?: boolean;
+    conShowBorders?: boolean;
 }
 
 export interface DailyRecord {

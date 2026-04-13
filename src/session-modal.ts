@@ -67,6 +67,10 @@ export class SessionModal extends Modal {
     endlessReaddWrong = false;
     /** Endless mode option: click-to-answer maps/constellations; multiple choice for text cards */
     endlessEasyMode = false;
+    /** Constellation display: show stick-figure lines */
+    conShowLines = true;
+    /** Constellation display: show dim boundary borders for all constellations */
+    conShowBorders = true;
 
     reviewQueue: any[] = [];
     currentCardContainer: HTMLElement | null = null;
@@ -105,9 +109,9 @@ export class SessionModal extends Modal {
             for (const [name, ids] of Object.entries(prefs.sessionGroups || {})) {
                 this.sessionGroups.set(name, new Set(ids));
             }
-            this.selectedGroups = new Set(
-                [...this.sessionGroups.keys()].filter(g => (this.sessionGroups.get(g)?.size ?? 0) > 0)
-            );
+            this.selectedGroups = new Set(prefs.selectedGroups || []);
+            if (prefs.conShowLines !== undefined) this.conShowLines = prefs.conShowLines;
+            if (prefs.conShowBorders !== undefined) this.conShowBorders = prefs.conShowBorders;
         } else {
             this.selectedDecks = new Set(this.availableDecks);
             this.availableBatches.forEach((batches, deck) => {
@@ -135,6 +139,9 @@ export class SessionModal extends Modal {
             sessionGroups: Object.fromEntries(
                 [...this.sessionGroups.entries()].map(([n, ids]) => [n, [...ids]])
             ),
+            selectedGroups: [...this.selectedGroups],
+            conShowLines: this.conShowLines,
+            conShowBorders: this.conShowBorders,
         };
         this.pluginData.sessionPrefs = prefs;
         this.plugin.savePluginData();
@@ -488,6 +495,19 @@ export class SessionModal extends Modal {
 
         const deckTree = container.createDiv({ cls: 'gi-deck-tree' });
 
+        // Build per-deck group map from cloze group fields
+        const deckGroupsMap = new Map<string, Map<string, Array<{ card: any; cloze: any }>>>();
+        this.allCards.forEach(card => {
+            if (!card.deck || card.type === 'dictionary') return;
+            (card.clozes || []).forEach((cloze: any) => {
+                if (!cloze.id || !cloze.group) return;
+                if (!deckGroupsMap.has(card.deck)) deckGroupsMap.set(card.deck, new Map());
+                const dg = deckGroupsMap.get(card.deck)!;
+                if (!dg.has(cloze.group)) dg.set(cloze.group, []);
+                dg.get(cloze.group)!.push({ card, cloze });
+            });
+        });
+
         const renderDecks = (filter = '') => {
             deckTree.empty();
             [...this.availableDecks]
@@ -498,6 +518,7 @@ export class SessionModal extends Modal {
                     const hasBatches = batches.length > 0;
                     const deckCards = this.allCards.filter(c => c.deck === deckName);
                     const totalCount = deckCards.reduce((n: number, c: any) => n + (c.clozes?.length || 0), 0);
+                    const deckGroupData = deckGroupsMap.get(deckName);
 
                     const deckItem = deckTree.createDiv({ cls: 'gi-deck-tree-item' });
                     const deckHeader = deckItem.createDiv({ cls: 'gi-deck-tree-header' });
@@ -569,6 +590,42 @@ export class SessionModal extends Modal {
                                     (card.clozes || []).forEach((cloze: any) => addCardRow(subList, card, cloze));
                                 });
                             });
+                        } else if (deckGroupData && deckGroupData.size > 0) {
+                            // Show groups as collapsible sub-folders
+                            for (const [groupName, groupClozes] of deckGroupData) {
+                                const groupRow = subList.createDiv({ cls: 'gi-deck-tree-batch' });
+                                const groupToggle = groupRow.createEl('span', { cls: 'gi-deck-tree-toggle' });
+                                setIcon(groupToggle, 'chevron-right');
+                                const groupCb = groupRow.createEl('input', { type: 'checkbox' });
+                                groupCb.checked = this.selectedGroups.has(groupName);
+                                groupCb.onchange = () => {
+                                    if (groupCb.checked) this.selectedGroups.add(groupName);
+                                    else this.selectedGroups.delete(groupName);
+                                    // Update deck checkbox indeterminate state
+                                    const anyGroupSel = deckGroupData && [...deckGroupData.keys()].some(g => this.selectedGroups.has(g));
+                                    deckCb.indeterminate = !!anyGroupSel;
+                                    this.savePrefs();
+                                };
+                                const gl = groupRow.createEl('label', { text: groupName });
+                                gl.htmlFor = '';
+                                groupRow.createEl('span', { text: String(groupClozes.length), cls: 'gi-deck-count' });
+
+                                const groupCardList = subList.createDiv({ cls: 'gi-deck-tree-batches' });
+                                groupCardList.style.display = 'none';
+                                groupClozes.forEach(({ card, cloze }) => addCardRow(groupCardList, card, cloze));
+
+                                const toggleGroup = () => {
+                                    const open = groupCardList.style.display !== 'none';
+                                    groupCardList.style.display = open ? 'none' : 'block';
+                                    setIcon(groupToggle, open ? 'chevron-right' : 'chevron-down');
+                                };
+                                groupToggle.onclick = (e) => { e.stopPropagation(); toggleGroup(); };
+                                groupRow.onclick = (e) => {
+                                    const tag = (e.target as HTMLElement).tagName;
+                                    if (tag === 'INPUT' || tag === 'LABEL') return;
+                                    toggleGroup();
+                                };
+                            }
                         } else {
                             deckCards.forEach(card => {
                                 (card.clozes || []).forEach((cloze: any) => addCardRow(subList, card, cloze));
@@ -593,9 +650,16 @@ export class SessionModal extends Modal {
                         if (deckCb.checked) {
                             this.selectedDecks.add(deckName);
                             batches.forEach(b => this.selectedBatches.add(`${deckName}::${b}`));
+                            // Clear group filter so all cards in deck are included
+                            if (deckGroupData) {
+                                for (const g of deckGroupData.keys()) this.selectedGroups.delete(g);
+                            }
                         } else {
                             this.selectedDecks.delete(deckName);
                             batches.forEach(b => this.selectedBatches.delete(`${deckName}::${b}`));
+                            if (deckGroupData) {
+                                for (const g of deckGroupData.keys()) this.selectedGroups.delete(g);
+                            }
                         }
                         deckCb.indeterminate = false;
                         renderSubRows();
@@ -621,120 +685,6 @@ export class SessionModal extends Modal {
             renderDecks(searchInput.value);
         };
 
-        // ── Groups ────────────────────────────────────────────────────────
-        const groupsHdr = container.createDiv({ cls: 'gi-deck-header-row', attr: { style: 'margin-top:16px;' } });
-        groupsHdr.createEl('h4', { text: 'Groups', attr: { style: 'margin:0; flex:1; font-size:0.9em;' } });
-        const newGroupBtn = groupsHdr.createEl('button', { text: '+ New Group', cls: 'mod-ghost' });
-
-        const groupList = container.createDiv({ cls: 'gi-group-list' });
-
-        const renderGroups = () => {
-            groupList.empty();
-            if (this.sessionGroups.size === 0) {
-                groupList.createEl('p', {
-                    text: 'Drag cards from the deck tree above into a group to filter your session.',
-                    attr: { style: 'font-size:0.8em; color:var(--text-muted); margin:4px 0 8px;' }
-                });
-            }
-
-            for (const [groupName, clozeIds] of this.sessionGroups) {
-                const groupItem = groupList.createDiv({ cls: 'gi-group-item' });
-
-                groupItem.ondragover = (e) => { e.preventDefault(); groupItem.addClass('gi-group-drop-hover'); };
-                groupItem.ondragleave = () => groupItem.removeClass('gi-group-drop-hover');
-                groupItem.ondrop = (e) => {
-                    e.preventDefault();
-                    groupItem.removeClass('gi-group-drop-hover');
-                    const id = e.dataTransfer?.getData('text/plain');
-                    if (id) { clozeIds.add(id); this.savePrefs(); renderGroups(); }
-                };
-
-                const groupHdr = groupItem.createDiv({ cls: 'gi-group-header' });
-                const expandToggle = groupHdr.createEl('span', { cls: 'gi-deck-tree-toggle' });
-                setIcon(expandToggle, 'chevron-right');
-                const groupCb = groupHdr.createEl('input', { type: 'checkbox' });
-                groupCb.checked = this.selectedGroups.has(groupName);
-                groupCb.onchange = () => {
-                    if (groupCb.checked) this.selectedGroups.add(groupName);
-                    else this.selectedGroups.delete(groupName);
-                    this.savePrefs();
-                };
-                groupHdr.createEl('span', { text: groupName, cls: 'gi-group-name' });
-                groupHdr.createEl('span', { text: String(clozeIds.size), cls: 'gi-deck-count' });
-                const delBtn = groupHdr.createEl('button', { cls: 'mod-ghost gi-group-delete-btn' });
-                setIcon(delBtn, 'x');
-                delBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    this.sessionGroups.delete(groupName);
-                    this.selectedGroups.delete(groupName);
-                    this.savePrefs();
-                    renderGroups();
-                };
-
-                const cardList = groupItem.createDiv({ cls: 'gi-deck-tree-batches' });
-                cardList.style.display = 'none';
-
-                const renderGroupCards = () => {
-                    cardList.empty();
-                    for (const clozeId of clozeIds) {
-                        let foundLabel = clozeId;
-                        for (const card of this.allCards) {
-                            const c = (card.clozes || []).find((cl: any) => cl.id === clozeId);
-                            if (c) { foundLabel = clozeLabel(card, c); break; }
-                        }
-                        const row = cardList.createDiv({ cls: 'gi-deck-tree-card' });
-                        row.createEl('span', { text: foundLabel, cls: 'gi-deck-tree-card-text' });
-                        const removeBtn = row.createEl('button', { cls: 'mod-ghost gi-group-delete-btn' });
-                        setIcon(removeBtn, 'x');
-                        removeBtn.style.marginLeft = 'auto';
-                        removeBtn.onclick = () => { clozeIds.delete(clozeId); this.savePrefs(); renderGroupCards(); };
-                    }
-                };
-                renderGroupCards();
-
-                const toggleGroupExpand = () => {
-                    const open = cardList.style.display !== 'none';
-                    cardList.style.display = open ? 'none' : 'block';
-                    setIcon(expandToggle, open ? 'chevron-right' : 'chevron-down');
-                };
-                expandToggle.onclick = (e) => { e.stopPropagation(); toggleGroupExpand(); };
-                groupHdr.onclick = (e) => {
-                    const tag = (e.target as HTMLElement).tagName;
-                    if (tag === 'INPUT' || tag === 'BUTTON') return;
-                    toggleGroupExpand();
-                };
-            }
-        };
-        renderGroups();
-
-        newGroupBtn.onclick = () => {
-            const nameWrap = groupList.createDiv({ cls: 'gi-group-new-wrap' });
-            const nameInput = nameWrap.createEl('input', {
-                type: 'text', placeholder: 'Group name…', cls: 'gi-group-new-input'
-            });
-            const confirmBtn = nameWrap.createEl('button', { cls: 'mod-cta gi-icon-btn' });
-            setIcon(confirmBtn, 'check');
-            const cancelBtn = nameWrap.createEl('button', { cls: 'mod-ghost gi-icon-btn' });
-            setIcon(cancelBtn, 'x');
-            nameInput.focus();
-
-            const confirm = () => {
-                const name = nameInput.value.trim();
-                if (name && !this.sessionGroups.has(name)) {
-                    this.sessionGroups.set(name, new Set());
-                    this.savePrefs();
-                    renderGroups();
-                }
-                nameWrap.remove();
-            };
-            confirmBtn.onclick = confirm;
-            cancelBtn.onclick = () => nameWrap.remove();
-            nameInput.onkeydown = (e) => {
-                if (e.key === 'Enter') confirm();
-                if (e.key === 'Escape') nameWrap.remove();
-            };
-        };
-
         // ── Endless options ────────────────────────────────────────────────
         new Setting(container)
             .setName('Re-add wrong cards')
@@ -750,6 +700,22 @@ export class SessionModal extends Modal {
             .addToggle(t => t
                 .setValue(this.endlessEasyMode)
                 .onChange(val => { this.endlessEasyMode = val; })
+            );
+
+        new Setting(container)
+            .setName('Constellation lines')
+            .setDesc('Show stick-figure lines connecting stars in each constellation.')
+            .addToggle(t => t
+                .setValue(this.conShowLines)
+                .onChange(val => { this.conShowLines = val; this.savePrefs(); })
+            );
+
+        new Setting(container)
+            .setName('Constellation borders')
+            .setDesc('Show dim boundary outlines for all constellations.')
+            .addToggle(t => t
+                .setValue(this.conShowBorders)
+                .onChange(val => { this.conShowBorders = val; this.savePrefs(); })
             );
 
         new Setting(container)
@@ -941,10 +907,26 @@ export class SessionModal extends Modal {
         this.sessionStart = Date.now();
         this.isDailySession = false;
 
-        const activeGroups = [...this.selectedGroups].filter(g => this.sessionGroups.has(g));
-        const groupClozeIds: Set<string> | null = activeGroups.length > 0
-            ? new Set(activeGroups.flatMap(g => [...(this.sessionGroups.get(g) ?? [])]))
-            : null;
+        // Build per-deck group filter: for each deck that has selected groups,
+        // only allow clozes that belong to one of those groups.
+        const clozeToDeck = new Map<string, string>();
+        this.allCards.forEach(card => {
+            (card.clozes || []).forEach((cloze: any) => {
+                if (cloze.id) clozeToDeck.set(cloze.id, card.deck);
+            });
+        });
+
+        const deckGroupFilter = new Map<string, Set<string>>(); // deck → allowed cloze IDs
+        for (const groupName of this.selectedGroups) {
+            const ids = this.sessionGroups.get(groupName);
+            if (!ids) continue;
+            for (const id of ids) {
+                const deck = clozeToDeck.get(id);
+                if (!deck) continue;
+                if (!deckGroupFilter.has(deck)) deckGroupFilter.set(deck, new Set());
+                deckGroupFilter.get(deck)!.add(id);
+            }
+        }
 
         const filtered = this.allCards.filter(c => {
             if (c.type === 'dictionary' || !this.selectedDecks.has(c.deck)) return false;
@@ -956,7 +938,9 @@ export class SessionModal extends Modal {
             (card.clozes || []).forEach((cloze: any) => {
                 if (!cloze.id) return;
                 if (this.excludedClozeIds.has(cloze.id)) return;
-                if (groupClozeIds && !groupClozeIds.has(cloze.id)) return;
+                // Per-deck group filter: if this deck has active groups, cloze must be in them
+                const deckFilter = deckGroupFilter.get(card.deck);
+                if (deckFilter && !deckFilter.has(cloze.id)) return;
                 this.reviewQueue.push({ ...card, currentCloze: cloze, id: cloze.id, dict: this.dict });
             });
         });
@@ -1303,10 +1287,11 @@ export class SessionModal extends Modal {
                 GlobeEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
             }
         } else if (item.type === "constellation") {
+            const conItem = { ...item, showLines: this.conShowLines, showBorders: this.conShowBorders };
             if (easyMode) {
-                ConstellationEngine.renderEasyMode(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+                ConstellationEngine.renderEasyMode(this.app, item.filePath, cardContainer, conItem, item.currentCloze, handleResult, item.dict);
             } else {
-                ConstellationEngine.renderInModal(this.app, item.filePath, cardContainer, item, item.currentCloze, handleResult, item.dict);
+                ConstellationEngine.renderInModal(this.app, item.filePath, cardContainer, conItem, item.currentCloze, handleResult, item.dict);
             }
         } else if (item.type === "code") {
             import('./engines/code').then(m => {
